@@ -1,0 +1,624 @@
+"""Command-line entry point for generating a complete model setup."""
+
+import argparse
+import json
+from collections.abc import Sequence
+from dataclasses import asdict, replace
+from pathlib import Path
+
+from magnetosphere_stl.components.bow_shock import bow_shock_clip_radius_re
+from magnetosphere_stl.config import (
+    BowShockSettings,
+    ConvectionStreamlineSettings,
+    FieldLineTubeSettings,
+    FieldModel,
+    KelvinHelmholtzSettings,
+    LShellSettings,
+    MeshResolution,
+    PeelSettings,
+    PolarFieldLineSettings,
+    ProjectConfig,
+    SolarWindConditions,
+)
+from magnetosphere_stl.generate import (
+    COMPONENT_GENERATORS,
+    OutputCollisionError,
+    generate_all,
+)
+
+
+def _l_shell_values(value: str) -> tuple[float, ...]:
+    try:
+        return tuple(float(item.strip()) for item in value.split(","))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "use comma-separated numbers, e.g. 2,4,6,9,15,30,60"
+        ) from error
+
+
+def _convection_seed_radii(value: str) -> tuple[float, ...]:
+    try:
+        return tuple(float(item.strip()) for item in value.split(","))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "use comma-separated radii, e.g. 2,3,4,5,6,8,10,15,25,40"
+        ) from error
+
+
+def _l_shell_peel_table(value: str) -> tuple[tuple[float, float], ...]:
+    try:
+        table = tuple(
+            tuple(float(part.strip()) for part in item.split(":"))
+            for item in value.split(",")
+        )
+        if any(len(point) != 2 for point in table):
+            raise ValueError
+        return table
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "use comma-separated L:angle pairs, e.g. 3:0,4:30,8:40"
+        ) from error
+
+
+def _optional_feature_enabled(
+    requested: bool | None,
+    *,
+    defaults: bool,
+    selected: bool = False,
+) -> bool:
+    """Resolve an optional feature while respecting an explicit --no-* flag."""
+
+    if requested is not None:
+        return requested
+    return defaults or selected
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Generate all registered magnetosphere STL components."
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="directory that will receive the STL files and setup.json",
+    )
+    parser.add_argument(
+        "--defaults",
+        action="store_true",
+        help=(
+            "generate every standard and optional component using ProjectConfig "
+            "defaults and, unless overridden, output/default"
+        ),
+    )
+    parser.add_argument(
+        "--only",
+        action="append",
+        choices=tuple(COMPONENT_GENERATORS),
+        help="generate only this component group; repeat to select several",
+    )
+    parser.add_argument("--dynamic-pressure", type=float, default=2.0, metavar="NPA")
+    parser.add_argument("--dst", type=float, default=-10.0, metavar="NT")
+    parser.add_argument("--imf-by", type=float, default=0.0, metavar="NT")
+    parser.add_argument("--imf-bz", type=float, default=-5.0, metavar="NT")
+    parser.add_argument("--kp", type=float, default=2.0)
+    parser.add_argument(
+        "--field-model",
+        choices=tuple(FieldModel),
+        type=FieldModel,
+        default=FieldModel.T96,
+    )
+    parser.add_argument("--earth-radius-mm", type=float, default=10.0)
+    parser.add_argument("--minimum-wall-mm", type=float, default=1.2)
+    parser.add_argument("--epoch-utc", default="2020-03-20T12:00:00+00:00")
+    parser.add_argument("--target-edge-re", type=float, default=0.25)
+    parser.add_argument("--boundary-chord-error-re", type=float, default=0.025)
+    parser.add_argument("--max-edge-re", type=float, default=0.50)
+    parser.add_argument("--min-edge-re", type=float, default=0.10)
+    parser.add_argument("--field-line-step-re", type=float, default=0.02)
+    parser.add_argument(
+        "--tail-x-min-re",
+        type=float,
+        default=-50.0,
+        help="anti-sunward GSM X truncation in Earth radii",
+    )
+    parser.add_argument(
+        "--bow-shock-max-radius-re",
+        type=float,
+        default=None,
+        help=(
+            "override the default bow-shock cylinder radius derived from the "
+            "magnetopause at the tail boundary"
+        ),
+    )
+    parser.add_argument("--bow-shock-roll-stop-height-re", type=float, default=0.25)
+    parser.add_argument(
+        "--bow-shock-engraving",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="engrave the project label into the bow-shock roll-stop",
+    )
+    parser.add_argument("--bow-shock-engraving-height-mm", type=float, default=20.0)
+    parser.add_argument("--bow-shock-engraving-depth-mm", type=float, default=0.5)
+    convection_defaults = ConvectionStreamlineSettings()
+    parser.add_argument(
+        "--convection-streamlines",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export equatorial corotation plus convection drift tubes",
+    )
+    parser.add_argument(
+        "--convection-seed-radii-re",
+        type=_convection_seed_radii,
+        default=convection_defaults.seed_radii_re,
+    )
+    parser.add_argument(
+        "--convection-grid-step-re",
+        type=float,
+        default=convection_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--convection-domain-level-count",
+        type=int,
+        default=convection_defaults.domain_level_count,
+    )
+    parser.add_argument(
+        "--convection-tube-diameter-mm",
+        type=float,
+        default=convection_defaults.tube_diameter_mm,
+    )
+    parser.add_argument(
+        "--convection-tube-sides",
+        type=int,
+        default=convection_defaults.tube_sides,
+    )
+    parser.add_argument(
+        "--convection-path-step-mm",
+        type=float,
+        default=convection_defaults.path_step_mm,
+    )
+    parser.add_argument(
+        "--corotation-potential-kv",
+        type=float,
+        default=convection_defaults.corotation_potential_kv,
+    )
+    polar_defaults = PolarFieldLineSettings()
+    parser.add_argument(
+        "--polar-field-lines",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export the northern X-Z meridian polar field-line fan",
+    )
+    parser.add_argument(
+        "--polar-half-width-deg",
+        type=float,
+        default=polar_defaults.half_width_deg,
+    )
+    parser.add_argument(
+        "--polar-angular-spacing-deg",
+        type=float,
+        default=polar_defaults.angular_spacing_deg,
+    )
+    parser.add_argument(
+        "--polar-tube-diameter-mm",
+        type=float,
+        default=polar_defaults.tube_diameter_mm,
+    )
+    parser.add_argument(
+        "--polar-tube-sides",
+        type=int,
+        default=polar_defaults.tube_sides,
+    )
+    parser.add_argument(
+        "--polar-trace-step-re",
+        type=float,
+        default=polar_defaults.trace_step_re,
+    )
+    parser.add_argument(
+        "--polar-path-step-mm",
+        type=float,
+        default=polar_defaults.path_step_mm,
+    )
+    parser.add_argument(
+        "--l-shells", type=_l_shell_values, default=LShellSettings().values
+    )
+    parser.add_argument("--l-shell-azimuths", type=int, default=48)
+    parser.add_argument("--l-shell-refinement-levels", type=int, default=3)
+    parser.add_argument(
+        "--field-line-tubes",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export sparse traced field-line tubes for every configured L-shell",
+    )
+    tube_defaults = FieldLineTubeSettings()
+    parser.add_argument(
+        "--tube-azimuth-spacing-deg",
+        type=float,
+        default=tube_defaults.azimuth_spacing_deg,
+    )
+    parser.add_argument(
+        "--tube-dense-spacing-start-l",
+        type=float,
+        default=tube_defaults.dense_spacing_start_l,
+    )
+    parser.add_argument(
+        "--tube-dense-spacing-end-l",
+        type=float,
+        default=tube_defaults.dense_spacing_end_l,
+    )
+    parser.add_argument(
+        "--tube-min-azimuth-spacing-deg",
+        type=float,
+        default=tube_defaults.minimum_azimuth_spacing_deg,
+    )
+    parser.add_argument(
+        "--tube-diameter-mm", type=float, default=tube_defaults.diameter_mm
+    )
+    parser.add_argument(
+        "--tube-sides", type=int, default=tube_defaults.cross_section_sides
+    )
+    parser.add_argument(
+        "--tube-path-step-mm", type=float, default=tube_defaults.path_step_mm
+    )
+    parser.add_argument(
+        "--peel-field-line-tubes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="apply each L-shell field-aligned peel to its tube companion",
+    )
+    parser.add_argument(
+        "--kelvin-helmholtz",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="add illustrative growing waves to both magnetopause flanks",
+    )
+    parser.add_argument("--kh-wavelength-re", type=float, default=5.0)
+    parser.add_argument("--kh-max-amplitude-re", type=float, default=0.91)
+    parser.add_argument("--kh-onset-x-re", type=float, default=2.0)
+    parser.add_argument("--kh-full-amplitude-x-re", type=float, default=-15.0)
+    parser.add_argument("--kh-tail-fade-start-x-re", type=float, default=-40.0)
+    parser.add_argument("--kh-angular-half-width-deg", type=float, default=40.0)
+    parser.add_argument("--kh-phase-deg", type=float, default=0.0)
+    parser.add_argument(
+        "--peel",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="apply the configured physical/display cutaways",
+    )
+    parser.add_argument("--peel-center-azimuth-deg", type=float, default=60.0)
+    parser.add_argument("--outer-peel-center-azimuth-deg", type=float, default=75.0)
+    parser.add_argument("--boundary-peel-center-clock-deg", type=float, default=45.0)
+    parser.add_argument(
+        "--bow-shock-peel-center-clock-deg", type=float, default=90.0
+    )
+    parser.add_argument("--magnetopause-peel-angle-deg", type=float, default=90.0)
+    parser.add_argument("--bow-shock-peel-angle-deg", type=float, default=200.0)
+    parser.add_argument("--l-shell-peel-start-l", type=float, default=4.0)
+    parser.add_argument("--l-shell-peel-end-l", type=float, default=60.0)
+    parser.add_argument(
+        "--l-shell-peel-table",
+        type=_l_shell_peel_table,
+        default=PeelSettings().l_shell_opening_table,
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace colliding generated files; unrelated files are preserved",
+    )
+    return parser
+
+
+def _print_run_configuration(
+    config: ProjectConfig, output_dir: Path, *, overwrite: bool
+) -> None:
+    """Print the fully resolved scientific and output configuration."""
+
+    resolved = {
+        "output_dir": str(output_dir.expanduser().resolve()),
+        "overwrite": overwrite,
+        "config": asdict(config),
+        "derived_print_space": {
+            "target_edge_length_mm": (
+                config.resolution.target_edge_length_re * config.earth_radius_mm
+            ),
+            "boundary_chord_error_mm": (
+                config.resolution.boundary_chord_error_re
+                * config.earth_radius_mm
+            ),
+            "minimum_edge_length_mm": (
+                config.resolution.min_edge_length_re * config.earth_radius_mm
+            ),
+            "maximum_edge_length_mm": (
+                config.resolution.max_edge_length_re * config.earth_radius_mm
+            ),
+            "field_line_step_mm": (
+                config.resolution.field_line_step_re * config.earth_radius_mm
+            ),
+            "tail_x_mm": (
+                config.resolution.tail_x_min_re * config.earth_radius_mm
+            ),
+            "bow_shock_clip_radius_re": bow_shock_clip_radius_re(config),
+            "bow_shock_clip_radius_mm": (
+                bow_shock_clip_radius_re(config) * config.earth_radius_mm
+            ),
+        },
+    }
+    print("Resolved run configuration:")
+    print(json.dumps(resolved, indent=2))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Parse one setup and run every registered component generator."""
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.output is None and not args.defaults:
+        parser.error("--output is required unless --defaults is used")
+
+    selected = set(args.only or ())
+    field_line_tubes_enabled = _optional_feature_enabled(
+        args.field_line_tubes,
+        defaults=args.defaults,
+    )
+    convection_enabled = _optional_feature_enabled(
+        args.convection_streamlines,
+        defaults=args.defaults,
+        selected="convection" in selected,
+    )
+    polar_enabled = _optional_feature_enabled(
+        args.polar_field_lines,
+        defaults=args.defaults,
+        selected="polar-field-lines" in selected,
+    )
+    kelvin_helmholtz_enabled = _optional_feature_enabled(
+        args.kelvin_helmholtz,
+        defaults=False,
+    )
+    peel_enabled = _optional_feature_enabled(
+        args.peel,
+        defaults=args.defaults,
+    )
+
+    if args.defaults:
+        config = ProjectConfig()
+        default_conditions = config.solar_wind
+        default_resolution = config.resolution
+        supplied_values = (
+            (
+                "--dynamic-pressure",
+                args.dynamic_pressure,
+                default_conditions.dynamic_pressure_npa,
+            ),
+            ("--dst", args.dst, default_conditions.dst_nt),
+            ("--imf-by", args.imf_by, default_conditions.imf_by_nt),
+            ("--imf-bz", args.imf_bz, default_conditions.imf_bz_nt),
+            ("--kp", args.kp, default_conditions.kp),
+            ("--field-model", args.field_model, config.field_model),
+            ("--earth-radius-mm", args.earth_radius_mm, config.earth_radius_mm),
+            ("--minimum-wall-mm", args.minimum_wall_mm, config.minimum_wall_mm),
+            ("--epoch-utc", args.epoch_utc, config.epoch_utc),
+            (
+                "--target-edge-re",
+                args.target_edge_re,
+                default_resolution.target_edge_length_re,
+            ),
+            (
+                "--boundary-chord-error-re",
+                args.boundary_chord_error_re,
+                default_resolution.boundary_chord_error_re,
+            ),
+            ("--max-edge-re", args.max_edge_re, default_resolution.max_edge_length_re),
+            ("--min-edge-re", args.min_edge_re, default_resolution.min_edge_length_re),
+            (
+                "--field-line-step-re",
+                args.field_line_step_re,
+                default_resolution.field_line_step_re,
+            ),
+            ("--tail-x-min-re", args.tail_x_min_re, default_resolution.tail_x_min_re),
+            (
+                "--bow-shock-max-radius-re",
+                args.bow_shock_max_radius_re,
+                config.bow_shock.maximum_cylindrical_radius_re,
+            ),
+            (
+                "--bow-shock-roll-stop-height-re",
+                args.bow_shock_roll_stop_height_re,
+                config.bow_shock.roll_stop_height_re,
+            ),
+            (
+                "--bow-shock-engraving-height-mm",
+                args.bow_shock_engraving_height_mm,
+                config.bow_shock.engraving_height_mm,
+            ),
+            (
+                "--bow-shock-engraving-depth-mm",
+                args.bow_shock_engraving_depth_mm,
+                config.bow_shock.engraving_depth_mm,
+            ),
+            ("--l-shells", args.l_shells, config.l_shells.values),
+            (
+                "--l-shell-azimuths",
+                args.l_shell_azimuths,
+                config.l_shells.azimuth_count,
+            ),
+            (
+                "--l-shell-refinement-levels",
+                args.l_shell_refinement_levels,
+                config.l_shells.azimuth_refinement_levels,
+            ),
+        )
+        changed = [name for name, value, default in supplied_values if value != default]
+        if changed:
+            parser.error(
+                f"--defaults cannot be combined with overrides: {', '.join(changed)}"
+            )
+        config = replace(
+            config,
+            field_line_tubes=FieldLineTubeSettings(
+                enabled=field_line_tubes_enabled,
+                azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
+                dense_spacing_start_l=args.tube_dense_spacing_start_l,
+                dense_spacing_end_l=args.tube_dense_spacing_end_l,
+                minimum_azimuth_spacing_deg=args.tube_min_azimuth_spacing_deg,
+                diameter_mm=args.tube_diameter_mm,
+                cross_section_sides=args.tube_sides,
+                path_step_mm=args.tube_path_step_mm,
+                peel_with_l_shells=args.peel_field_line_tubes,
+            ),
+            bow_shock=BowShockSettings(
+                maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
+                roll_stop_height_re=args.bow_shock_roll_stop_height_re,
+                engraving_enabled=args.bow_shock_engraving,
+                engraving_height_mm=args.bow_shock_engraving_height_mm,
+                engraving_depth_mm=args.bow_shock_engraving_depth_mm,
+            ),
+            convection_streamlines=ConvectionStreamlineSettings(
+                enabled=convection_enabled,
+                seed_radii_re=args.convection_seed_radii_re,
+                domain_level_count=args.convection_domain_level_count,
+                grid_step_re=args.convection_grid_step_re,
+                tube_diameter_mm=args.convection_tube_diameter_mm,
+                tube_sides=args.convection_tube_sides,
+                path_step_mm=args.convection_path_step_mm,
+                corotation_potential_kv=args.corotation_potential_kv,
+            ),
+            polar_field_lines=PolarFieldLineSettings(
+                enabled=polar_enabled,
+                half_width_deg=args.polar_half_width_deg,
+                angular_spacing_deg=args.polar_angular_spacing_deg,
+                tube_diameter_mm=args.polar_tube_diameter_mm,
+                tube_sides=args.polar_tube_sides,
+                trace_step_re=args.polar_trace_step_re,
+                path_step_mm=args.polar_path_step_mm,
+            ),
+            kelvin_helmholtz=KelvinHelmholtzSettings(
+                enabled=kelvin_helmholtz_enabled,
+                wavelength_re=args.kh_wavelength_re,
+                maximum_amplitude_re=args.kh_max_amplitude_re,
+                onset_x_re=args.kh_onset_x_re,
+                full_amplitude_x_re=args.kh_full_amplitude_x_re,
+                tail_fade_start_x_re=args.kh_tail_fade_start_x_re,
+                angular_half_width_deg=args.kh_angular_half_width_deg,
+                phase_deg=args.kh_phase_deg,
+            ),
+            peel=PeelSettings(
+                enabled=peel_enabled,
+                center_azimuth_deg=args.peel_center_azimuth_deg,
+                outer_center_azimuth_deg=args.outer_peel_center_azimuth_deg,
+                boundary_center_clock_deg=args.boundary_peel_center_clock_deg,
+                bow_shock_center_clock_deg=args.bow_shock_peel_center_clock_deg,
+                magnetopause_opening_deg=args.magnetopause_peel_angle_deg,
+                bow_shock_opening_deg=args.bow_shock_peel_angle_deg,
+                l_shell_start_l=args.l_shell_peel_start_l,
+                l_shell_end_l=args.l_shell_peel_end_l,
+                l_shell_opening_table=args.l_shell_peel_table,
+            ),
+        )
+        output_dir = args.output or Path("output/default")
+    else:
+        config = ProjectConfig(
+            field_model=args.field_model,
+            solar_wind=SolarWindConditions(
+                dynamic_pressure_npa=args.dynamic_pressure,
+                dst_nt=args.dst,
+                imf_by_nt=args.imf_by,
+                imf_bz_nt=args.imf_bz,
+                kp=args.kp,
+            ),
+            resolution=MeshResolution(
+                target_edge_length_re=args.target_edge_re,
+                boundary_chord_error_re=args.boundary_chord_error_re,
+                max_edge_length_re=args.max_edge_re,
+                min_edge_length_re=args.min_edge_re,
+                field_line_step_re=args.field_line_step_re,
+                tail_x_min_re=args.tail_x_min_re,
+            ),
+            l_shells=LShellSettings(
+                values=args.l_shells,
+                azimuth_count=args.l_shell_azimuths,
+                azimuth_refinement_levels=args.l_shell_refinement_levels,
+            ),
+            field_line_tubes=FieldLineTubeSettings(
+                enabled=field_line_tubes_enabled,
+                azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
+                dense_spacing_start_l=args.tube_dense_spacing_start_l,
+                dense_spacing_end_l=args.tube_dense_spacing_end_l,
+                minimum_azimuth_spacing_deg=args.tube_min_azimuth_spacing_deg,
+                diameter_mm=args.tube_diameter_mm,
+                cross_section_sides=args.tube_sides,
+                path_step_mm=args.tube_path_step_mm,
+                peel_with_l_shells=args.peel_field_line_tubes,
+            ),
+            bow_shock=BowShockSettings(
+                maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
+                roll_stop_height_re=args.bow_shock_roll_stop_height_re,
+                engraving_enabled=args.bow_shock_engraving,
+                engraving_height_mm=args.bow_shock_engraving_height_mm,
+                engraving_depth_mm=args.bow_shock_engraving_depth_mm,
+            ),
+            convection_streamlines=ConvectionStreamlineSettings(
+                enabled=convection_enabled,
+                seed_radii_re=args.convection_seed_radii_re,
+                domain_level_count=args.convection_domain_level_count,
+                grid_step_re=args.convection_grid_step_re,
+                tube_diameter_mm=args.convection_tube_diameter_mm,
+                tube_sides=args.convection_tube_sides,
+                path_step_mm=args.convection_path_step_mm,
+                corotation_potential_kv=args.corotation_potential_kv,
+            ),
+            polar_field_lines=PolarFieldLineSettings(
+                enabled=polar_enabled,
+                half_width_deg=args.polar_half_width_deg,
+                angular_spacing_deg=args.polar_angular_spacing_deg,
+                tube_diameter_mm=args.polar_tube_diameter_mm,
+                tube_sides=args.polar_tube_sides,
+                trace_step_re=args.polar_trace_step_re,
+                path_step_mm=args.polar_path_step_mm,
+            ),
+            kelvin_helmholtz=KelvinHelmholtzSettings(
+                enabled=kelvin_helmholtz_enabled,
+                wavelength_re=args.kh_wavelength_re,
+                maximum_amplitude_re=args.kh_max_amplitude_re,
+                onset_x_re=args.kh_onset_x_re,
+                full_amplitude_x_re=args.kh_full_amplitude_x_re,
+                tail_fade_start_x_re=args.kh_tail_fade_start_x_re,
+                angular_half_width_deg=args.kh_angular_half_width_deg,
+                phase_deg=args.kh_phase_deg,
+            ),
+            peel=PeelSettings(
+                enabled=peel_enabled,
+                center_azimuth_deg=args.peel_center_azimuth_deg,
+                outer_center_azimuth_deg=args.outer_peel_center_azimuth_deg,
+                boundary_center_clock_deg=args.boundary_peel_center_clock_deg,
+                bow_shock_center_clock_deg=args.bow_shock_peel_center_clock_deg,
+                magnetopause_opening_deg=args.magnetopause_peel_angle_deg,
+                bow_shock_opening_deg=args.bow_shock_peel_angle_deg,
+                l_shell_start_l=args.l_shell_peel_start_l,
+                l_shell_end_l=args.l_shell_peel_end_l,
+                l_shell_opening_table=args.l_shell_peel_table,
+            ),
+            epoch_utc=args.epoch_utc,
+            earth_radius_mm=args.earth_radius_mm,
+            minimum_wall_mm=args.minimum_wall_mm,
+        )
+        output_dir = args.output
+    _print_run_configuration(config, output_dir, overwrite=args.overwrite)
+    try:
+        if args.only:
+            selected_generators = tuple(
+                COMPONENT_GENERATORS[name] for name in dict.fromkeys(args.only)
+            )
+            result = generate_all(
+                config,
+                output_dir,
+                generators=selected_generators,
+                overwrite=args.overwrite,
+            )
+        else:
+            result = generate_all(config, output_dir, overwrite=args.overwrite)
+    except OutputCollisionError as error:
+        raise SystemExit(str(error)) from error
+
+    count = len(result.component_files)
+    print(f"Generated {count} component(s) in {result.output_dir}")
+    print(f"Setup manifest: {result.manifest_file}")
+    return 0
