@@ -64,13 +64,18 @@ domain boundary, then intersected with a cylinder centered on the X axis. By def
 the cylinder radius is the projected transverse radius of the Shue magnetopause at
 that same tail boundary, so both components have a consistent downstream footprint.
 Use `--bow-shock-max-radius-re` only to override that derived radius. The component is
-also trimmed `0.5 R_E` above its lowest −Z extent, creating a horizontal
+also trimmed `6 R_E` above its lowest −Z extent, creating a larger horizontal
 roll-stop surface; change or disable it with `--bow-shock-roll-stop-height-re`. The
-peeled roll-stop is engraved along GSM X by default with
+peeled roll-stop is engraved along GSM X at `Y=0` by default with
 `Earth's Magnetosphere / irf.se`, oriented to read from beneath the print; disable the label with
 `--no-bow-shock-engraving`, or adjust it with
 `--bow-shock-engraving-height-mm` and `--bow-shock-engraving-depth-mm`. The component
 is exported as `bow_shock.stl`.
+
+The magnetopause receives a matching lower trim at the bow-shock roll-stop height
+plus `1 R_E`. With the default 6 R_E bow-shock stop, the magnetopause is therefore
+trimmed by 7 R_E, keeping it above the recessed lettering when the components are
+nested while reducing its print volume as well.
 
 The L-shell component defaults to equatorial seed radii
 `L = 2, 4, 6, 9, 15, 30, 45, 100`.
@@ -107,14 +112,17 @@ between valid traces from bulging through the physical boundary. Field-line ridg
 tubes are constrained by the same envelope. Tail-lobe surfaces are capped only for
 the boolean operation and reopened afterward at the configured negative-X plane.
 
-## Field-line ridge tubes
+## Field-line tubes and grooves
 
 Add `--field-line-tubes` to export a companion STL for every configured L-shell, for
 example `l_shell_9_field_lines.stl`. Each companion contains a sparse set of capped
 Tsyganenko/IGRF field-line tubes centered on the corresponding shell surface. When
 the two objects are stacked, the exposed half of each tube forms an identifiable
-ridge. Existing shell traces are reused whenever their azimuth matches a requested
-tube, avoiding duplicate field calculations in the normal case.
+ridge. By default, the same tubes are subtracted from their corresponding L-shell,
+leaving matching half-round grooves in the shell surface. Use
+`--no-field-line-grooves` to retain the former smooth L-shell surfaces. Existing shell
+traces are reused whenever their azimuth matches a requested tube, avoiding duplicate
+field calculations in the normal case.
 
 Defaults place one tube every 10° through L=9.5, then linearly tighten the target
 spacing to 3° at L=60 and beyond. Intermediate targets are rounded to the nearest
@@ -134,6 +142,39 @@ alongside a peeled shell instead.
 ```bash
 uv run magnetosphere-stl --defaults --peel --field-line-tubes --overwrite
 ```
+
+## Full-azimuth northern field-line wedges
+
+The opt-in `field-line-wedges` component creates closed construction volumes between
+pairs of L values. For each range, it traces the inner and outer equatorial seed rings
+at fixed azimuth spacing, keeps only the northern (`+Z`) Earth-connected half of every
+field line, and lofts those traces into the inner and outer magnetic surfaces. A
+sampled annulus closes the volume in the equatorial plane and a spherical annulus
+closes it along the Earth footprints. The result is one complete 360° northern
+half-toroid per L range; sector extraction can be applied later.
+
+Each northern field line is integrated first and classified afterward. An azimuth is
+retained only when both its inner and outer traces reach northern Earth footprints,
+remain at `Z >= 0`, and stay inside the modeled Shue magnetopause. Missing solutions
+and magnetopause-crossing traces open a gap in the toroid. Every contiguous run of
+good azimuths is closed at its first and last good field lines with a meridional cap,
+producing a watertight peeled toroid rather than aborting the range. These caps are
+lofted through additional, genuinely traced intermediate L lines; no centroid fan or
+invented radial cap edges are used. All ranges in one run also use a shared path
+sampling count, so adjacent bands reproduce their common traced surface exactly and
+do not overlap. Adjacent configured ranges reuse their shared L traces within the
+same run, making nested Matryoshka-style bands such as `8:10,10:12` less expensive
+than generating them independently.
+
+```bash
+uv run magnetosphere-stl --output output/field-line-wedges \
+  --only field-line-wedges \
+  --field-line-wedge-ranges 8:10,10:12 \
+  --field-line-wedge-azimuth-spacing-deg 10
+```
+
+The feature is not enabled by either defaults preset. It can also be added to a full
+run with `--field-line-wedges`; its default range is `8:10` at 10° spacing.
 
 ## Layout
 
@@ -161,6 +202,10 @@ uv sync
 # This enables peeling, field-line ridges, convection, and the polar fan:
 uv run magnetosphere-stl --defaults
 
+# Generate the same complete component set for a severe compressed storm case
+# (50 nPa dynamic pressure and southward IMF Bz = -20 nT):
+uv run magnetosphere-stl --defaults-high
+
 # Repeat the default development run, replacing its generated files:
 uv run magnetosphere-stl --defaults --overwrite
 
@@ -172,6 +217,11 @@ uv run magnetosphere-stl --output output/quiet-solar-wind \
 uv run pytest
 uv run ruff check .
 ```
+
+Codex and other sandboxed tools may be unable to read uv's cache under
+`~/.cache/uv`. After `uv sync` has created the project-local environment, run tests
+without consulting that cache via `.venv/bin/python -m pytest` (and lint via
+`.venv/bin/python -m ruff check .`).
 
 Optional features remain opt-in for explicitly configured, non-default runs.
 Kelvin–Helmholtz waves are also off in `--defaults` runs and can be enabled with
@@ -229,6 +279,14 @@ Peeled runs export both boundary representations. `magnetopause.stl` and
 `bow_shock.stl` contain the solid peeled cutaways, while
 `magnetopause_unpeeled.stl` and `bow_shock_unpeeled.stl` contain the complete thin
 scientific shells. The surface mesh is calculated only once for each boundary.
+
+When the convection streamlines or polar fan are enabled, their tube geometry is also
+subtracted from the matching planar face of `magnetopause.stl`: convection paths form
+grooves in the X–Y face and polar field lines form grooves in the X–Z face. Their
+standalone tube STLs are still exported for assembly. This alignment is defined only
+for the default 90° magnetopause opening centered at 45°. Changing either peel value
+skips these grooves with a warning because the cut faces no longer coincide with the
+two tube planes.
 
 Closed meshes use a true Manifold boolean difference. For peeling, the magnetopause's
 thin scientific shell is replaced at the export boundary by the complete volume
@@ -321,8 +379,8 @@ uv run magnetosphere-stl --defaults --output output/polar-fan \
 ```
 
 `--only` can be repeated to select multiple groups from `earth`, `magnetopause`,
-`bow-shock`, `convection`, `polar-field-lines`, and `l-shells`. Selecting either
-optional tube component automatically enables it.
+`bow-shock`, `convection`, `polar-field-lines`, `field-line-wedges`, and `l-shells`.
+Selecting an optional tube or wedge component automatically enables it.
 
 ## AI-assisted development
 

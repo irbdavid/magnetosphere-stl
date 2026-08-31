@@ -1,6 +1,7 @@
 """Printable equatorial magnetospheric convection streamlines."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 import trimesh
@@ -84,7 +85,8 @@ def _contour_paths_re(config: ProjectConfig) -> list[tuple[np.ndarray, bool]]:
     return paths
 
 
-def convection_streamline_mesh(config: ProjectConfig) -> trimesh.Trimesh:
+@lru_cache(maxsize=1)
+def _cached_convection_streamline_mesh(config: ProjectConfig) -> trimesh.Trimesh:
     """Generate tubes along equatorial E-cross-B streamline geometry."""
 
     settings = config.convection_streamlines
@@ -108,6 +110,12 @@ def convection_streamline_mesh(config: ProjectConfig) -> trimesh.Trimesh:
     if not mesh.is_volume:
         raise RuntimeError("convection streamline tubes are not closed volumes")
     return mesh
+
+
+def convection_streamline_mesh(config: ProjectConfig) -> trimesh.Trimesh:
+    """Return a safe copy of the cached convection-tube geometry."""
+
+    return _cached_convection_streamline_mesh(config).copy()
 
 
 @dataclass(frozen=True, slots=True)

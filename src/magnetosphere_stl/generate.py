@@ -12,6 +12,7 @@ from magnetosphere_stl.components import (
     BowShockGenerator,
     ConvectionStreamlineGenerator,
     EarthGenerator,
+    FieldLineWedgeGenerator,
     LShellGenerator,
     MagnetopauseGenerator,
     PolarFieldLineGenerator,
@@ -49,6 +50,7 @@ class OutputCollisionError(FileExistsError):
 
 COMPONENT_GENERATORS: dict[str, ComponentGenerator] = {
     "earth": EarthGenerator(),
+    "field-line-wedges": FieldLineWedgeGenerator(),
     "magnetopause": MagnetopauseGenerator(),
     "bow-shock": BowShockGenerator(),
     "convection": ConvectionStreamlineGenerator(),

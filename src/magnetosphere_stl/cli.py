@@ -11,6 +11,7 @@ from magnetosphere_stl.config import (
     BowShockSettings,
     ConvectionStreamlineSettings,
     FieldLineTubeSettings,
+    FieldLineWedgeSettings,
     FieldModel,
     KelvinHelmholtzSettings,
     LShellSettings,
@@ -25,6 +26,9 @@ from magnetosphere_stl.generate import (
     OutputCollisionError,
     generate_all,
 )
+
+HIGH_STORM_DYNAMIC_PRESSURE_NPA = 50.0
+HIGH_STORM_IMF_BZ_NT = -20.0
 
 
 def _l_shell_values(value: str) -> tuple[float, ...]:
@@ -60,6 +64,21 @@ def _l_shell_peel_table(value: str) -> tuple[tuple[float, float], ...]:
         ) from error
 
 
+def _field_line_wedge_ranges(value: str) -> tuple[tuple[float, float], ...]:
+    try:
+        ranges = tuple(
+            tuple(float(part.strip()) for part in item.split(":"))
+            for item in value.split(",")
+        )
+        if any(len(l_range) != 2 for l_range in ranges):
+            raise ValueError
+        return ranges
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "use comma-separated inner:outer L pairs, e.g. 8:10,10:12"
+        ) from error
+
+
 def _optional_feature_enabled(
     requested: bool | None,
     *,
@@ -82,12 +101,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="directory that will receive the STL files and setup.json",
     )
-    parser.add_argument(
+    preset_group = parser.add_mutually_exclusive_group()
+    preset_group.add_argument(
         "--defaults",
         action="store_true",
         help=(
             "generate every standard and optional component using ProjectConfig "
             "defaults and, unless overridden, output/default"
+        ),
+    )
+    preset_group.add_argument(
+        "--defaults-high",
+        action="store_true",
+        help=(
+            "generate the complete default component set for a high-storm "
+            "scenario with 50 nPa dynamic pressure and -20 nT IMF Bz and, "
+            "unless overridden, output/default-high"
         ),
     )
     parser.add_argument(
@@ -236,11 +265,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--l-shell-azimuths", type=int, default=48)
     parser.add_argument("--l-shell-refinement-levels", type=int, default=3)
+    wedge_defaults = FieldLineWedgeSettings()
+    parser.add_argument(
+        "--field-line-wedges",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export closed full-azimuth northern volumes between L-shell pairs",
+    )
+    parser.add_argument(
+        "--field-line-wedge-ranges",
+        type=_field_line_wedge_ranges,
+        default=wedge_defaults.l_ranges,
+        help="comma-separated inner:outer L pairs, e.g. 8:10,10:12",
+    )
+    parser.add_argument(
+        "--field-line-wedge-azimuth-spacing-deg",
+        type=float,
+        default=wedge_defaults.azimuth_spacing_deg,
+    )
     parser.add_argument(
         "--field-line-tubes",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="export sparse traced field-line tubes for every configured L-shell",
+    )
+    parser.add_argument(
+        "--field-line-grooves",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="subtract each field-line tube from its corresponding L-shell",
     )
     tube_defaults = FieldLineTubeSettings()
     parser.add_argument(
@@ -364,23 +417,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.output is None and not args.defaults:
-        parser.error("--output is required unless --defaults is used")
+    using_defaults = args.defaults or args.defaults_high
+    if args.output is None and not using_defaults:
+        parser.error("--output is required unless a --defaults preset is used")
 
     selected = set(args.only or ())
     field_line_tubes_enabled = _optional_feature_enabled(
         args.field_line_tubes,
-        defaults=args.defaults,
+        defaults=using_defaults,
     )
     convection_enabled = _optional_feature_enabled(
         args.convection_streamlines,
-        defaults=args.defaults,
+        defaults=using_defaults,
         selected="convection" in selected,
     )
     polar_enabled = _optional_feature_enabled(
         args.polar_field_lines,
-        defaults=args.defaults,
+        defaults=using_defaults,
         selected="polar-field-lines" in selected,
+    )
+    wedge_enabled = _optional_feature_enabled(
+        args.field_line_wedges,
+        defaults=False,
+        selected="field-line-wedges" in selected,
     )
     kelvin_helmholtz_enabled = _optional_feature_enabled(
         args.kelvin_helmholtz,
@@ -388,10 +447,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     peel_enabled = _optional_feature_enabled(
         args.peel,
-        defaults=args.defaults,
+        defaults=using_defaults,
     )
 
-    if args.defaults:
+    if using_defaults:
         config = ProjectConfig()
         default_conditions = config.solar_wind
         default_resolution = config.resolution
@@ -461,13 +520,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         changed = [name for name, value, default in supplied_values if value != default]
         if changed:
+            preset_flag = "--defaults-high" if args.defaults_high else "--defaults"
             parser.error(
-                f"--defaults cannot be combined with overrides: {', '.join(changed)}"
+                f"{preset_flag} cannot be combined with overrides: "
+                f"{', '.join(changed)}"
+            )
+        if args.defaults_high:
+            config = replace(
+                config,
+                solar_wind=replace(
+                    config.solar_wind,
+                    dynamic_pressure_npa=HIGH_STORM_DYNAMIC_PRESSURE_NPA,
+                    imf_bz_nt=HIGH_STORM_IMF_BZ_NT,
+                ),
             )
         config = replace(
             config,
+            field_line_wedges=FieldLineWedgeSettings(
+                enabled=wedge_enabled,
+                l_ranges=args.field_line_wedge_ranges,
+                azimuth_spacing_deg=(
+                    args.field_line_wedge_azimuth_spacing_deg
+                ),
+            ),
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
+                grooves_enabled=args.field_line_grooves,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,
@@ -526,7 +604,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 l_shell_opening_table=args.l_shell_peel_table,
             ),
         )
-        output_dir = args.output or Path("output/default")
+        default_output = (
+            "output/default-high" if args.defaults_high else "output/default"
+        )
+        output_dir = args.output or Path(default_output)
     else:
         config = ProjectConfig(
             field_model=args.field_model,
@@ -550,8 +631,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 azimuth_count=args.l_shell_azimuths,
                 azimuth_refinement_levels=args.l_shell_refinement_levels,
             ),
+            field_line_wedges=FieldLineWedgeSettings(
+                enabled=wedge_enabled,
+                l_ranges=args.field_line_wedge_ranges,
+                azimuth_spacing_deg=(
+                    args.field_line_wedge_azimuth_spacing_deg
+                ),
+            ),
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
+                grooves_enabled=args.field_line_grooves,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,

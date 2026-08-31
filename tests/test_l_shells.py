@@ -19,9 +19,11 @@ from magnetosphere_stl.components.l_shells import (
     _record_from_halves,
     _remove_tail_cap,
     _sector_mesh,
+    _subtract_field_line_grooves,
     _TraceRecord,
 )
 from magnetosphere_stl.components.magnetopause import solid_magnetopause_envelope
+from magnetosphere_stl.geometry.tubes import tube_mesh
 from magnetosphere_stl.models.tsyganenko import (
     FieldLineHalf,
     TraceTerminal,
@@ -56,7 +58,9 @@ def test_reduced_l_shell_set_is_watertight() -> None:
 
     assert mesh.is_watertight
     assert mesh.is_volume
-    assert mesh.euler_number == 0
+    # The base L-shell is genus 1. Each closed groove adds one handle, reducing
+    # the Euler characteristic by two.
+    assert mesh.euler_number == -2 * tubes.body_count
     assert mesh.volume > 0
     assert mesh.bounds[1, 0] > 19.0
     assert tubes.is_volume
@@ -105,6 +109,37 @@ def test_field_line_tube_spacing_tightens_for_outer_l_shells() -> None:
     assert settings.line_count_for_l(45.0) == 71
     assert settings.actual_spacing_for_l(60.0) == 3.0
     assert settings.actual_spacing_for_l(100.0) == 3.0
+
+
+def test_field_line_tube_cuts_a_groove_into_a_closed_surface() -> None:
+    shell = trimesh.creation.box(extents=(10.0, 10.0, 10.0))
+    points = np.asarray([[-4.0, 0.0, 5.0], [0.0, 0.0, 5.0], [4.0, 0.0, 5.0]])
+    cutter = tube_mesh(points, radius=1.0, sides=12)
+
+    grooved = _subtract_field_line_grooves(shell, cutter)
+
+    assert grooved.is_volume
+    assert grooved.volume < shell.volume
+    assert grooved.volume == pytest.approx(shell.volume - 4.0 * np.pi, rel=0.05)
+
+
+def test_non_volume_groove_result_is_warned_and_retained(monkeypatch) -> None:
+    shell = trimesh.creation.box()
+    open_result = shell.copy()
+    open_result.update_faces(np.arange(len(open_result.faces) - 1))
+    open_result.remove_unreferenced_vertices()
+    monkeypatch.setattr(
+        trimesh.boolean,
+        "difference",
+        lambda *args, **kwargs: open_result.copy(),
+    )
+
+    with pytest.warns(RuntimeWarning, match="exporting it for inspection"):
+        grooved = _subtract_field_line_grooves(shell, trimesh.creation.box())
+
+    assert not grooved.is_volume
+    assert not grooved.is_watertight
+    assert len(grooved.faces) == len(open_result.faces)
 
 
 def test_field_aligned_peel_retains_exact_boundary_traces() -> None:

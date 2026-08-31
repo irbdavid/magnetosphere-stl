@@ -1,5 +1,6 @@
 """Closed L-shell surfaces lofted through modeled magnetic field lines."""
 
+import warnings
 from dataclasses import dataclass
 from math import ceil, cos, pi, sin
 
@@ -508,6 +509,39 @@ def _field_line_tube_mesh(
     return mesh
 
 
+def _subtract_field_line_grooves(
+    shell: trimesh.Trimesh,
+    tubes: trimesh.Trimesh,
+    *,
+    artifact_name: str | None = None,
+) -> trimesh.Trimesh:
+    """Cut tube-shaped channels into a temporarily closed L-shell volume."""
+
+    grooved = trimesh.boolean.difference(
+        [shell, tubes], engine="manifold", check_volume=True
+    )
+    if grooved.is_empty:
+        raise RuntimeError("field-line grooves removed an entire L-shell component")
+    grooved.process(validate=True)
+    trimesh.repair.fix_normals(grooved, multibody=True)
+    if not grooved.is_volume:
+        boundary_vertex_count = len(_boundary_vertex_indices(grooved.faces))
+        subject = "field-line groove subtraction"
+        if artifact_name is not None:
+            subject = f"field-line groove subtraction for {artifact_name}"
+        warnings.warn(
+            f"{subject} produced a non-volume mesh; "
+            "exporting it for inspection "
+            f"(watertight={grooved.is_watertight}, "
+            f"bodies={grooved.body_count}, "
+            f"euler_number={grooved.euler_number}, "
+            f"boundary_vertices={boundary_vertex_count})",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return grooved
+
+
 @dataclass(frozen=True, slots=True)
 class LShellGenerator:
     """Generate one distinct scientific surface for each configured L value."""
@@ -556,24 +590,8 @@ class LShellGenerator:
                 raise RuntimeError(
                     f"L={l_value:g} has no printable Earth-connected field-line sector"
                 )
-            meshes: list[trimesh.Trimesh] = []
-            for sector, wrap in sectors:
-                has_tail = TraceTerminal.TAIL in sector[0].topology
-                sector_mesh = _sector_mesh(
-                    sector,
-                    config,
-                    wrap=wrap,
-                    cap_tail=has_tail,
-                )
-                meshes.append(
-                    _clip_to_magnetopause(
-                        sector_mesh,
-                        magnetopause,
-                        config,
-                        reopen_tail=has_tail,
-                    )
-                )
-            artifacts[_artifact_name(l_value)] = trimesh.util.concatenate(meshes)
+            clipped_tubes: trimesh.Trimesh | None = None
+            groove_cutters: trimesh.Trimesh | None = None
             if config.field_line_tubes.enabled:
                 tube_settings = config.field_line_tubes
                 line_count = tube_settings.line_count_for_l(l_value)
@@ -600,12 +618,41 @@ class LShellGenerator:
                     record = trace_cache[key]
                     if record is not None:
                         tube_records.append(record)
-                tube_meshes = _field_line_tube_mesh(tube_records, config)
-                artifacts[_field_line_artifact_name(l_value)] = (
-                    _clip_to_magnetopause(
-                        tube_meshes,
-                        magnetopause,
-                        config,
-                    )
+                groove_cutters = _field_line_tube_mesh(tube_records, config)
+                clipped_tubes = _clip_to_magnetopause(
+                    groove_cutters,
+                    magnetopause,
+                    config,
                 )
+
+            meshes: list[trimesh.Trimesh] = []
+            for sector, wrap in sectors:
+                has_tail = TraceTerminal.TAIL in sector[0].topology
+                sector_mesh = _sector_mesh(
+                    sector,
+                    config,
+                    wrap=wrap,
+                    cap_tail=has_tail,
+                )
+                shell = _clip_to_magnetopause(
+                    sector_mesh,
+                    magnetopause,
+                    config,
+                )
+                if (
+                    groove_cutters is not None
+                    and config.field_line_tubes.grooves_enabled
+                ):
+                    shell = _subtract_field_line_grooves(
+                        shell,
+                        groove_cutters,
+                        artifact_name=_artifact_name(l_value),
+                    )
+                if has_tail:
+                    shell = _remove_tail_cap(shell, config)
+                meshes.append(shell)
+            artifacts[_artifact_name(l_value)] = trimesh.util.concatenate(meshes)
+            if config.field_line_tubes.enabled:
+                assert clipped_tubes is not None
+                artifacts[_field_line_artifact_name(l_value)] = clipped_tubes
         return artifacts

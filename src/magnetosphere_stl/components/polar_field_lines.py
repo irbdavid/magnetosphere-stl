@@ -1,6 +1,7 @@
 """Printable northern polar field-line fan in the GSM X-Z meridian."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 from math import pi
 
 import numpy as np
@@ -34,7 +35,8 @@ def polar_seed_points_re(config: ProjectConfig) -> np.ndarray:
     )
 
 
-def polar_field_line_mesh(config: ProjectConfig) -> trimesh.Trimesh:
+@lru_cache(maxsize=1)
+def _cached_polar_field_line_mesh(config: ProjectConfig) -> trimesh.Trimesh:
     """Trace and tube the configured northern polar fan."""
 
     settings = config.polar_field_lines
@@ -71,6 +73,12 @@ def polar_field_line_mesh(config: ProjectConfig) -> trimesh.Trimesh:
     if not mesh.is_watertight:
         raise RuntimeError("polar field-line tubes are not watertight")
     return mesh
+
+
+def polar_field_line_mesh(config: ProjectConfig) -> trimesh.Trimesh:
+    """Return a safe copy of the cached polar-fan tube geometry."""
+
+    return _cached_polar_field_line_mesh(config).copy()
 
 
 @dataclass(frozen=True, slots=True)

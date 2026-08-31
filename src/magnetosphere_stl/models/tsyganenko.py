@@ -171,6 +171,48 @@ def trace_field_halves(
     return raw_halves[0], raw_halves[1]
 
 
+def trace_northern_field_half(
+    seed_re: np.ndarray,
+    config: ProjectConfig,
+    model_name: str,
+    parameters: int | np.ndarray,
+) -> FieldLineHalf:
+    """Trace from an equatorial seed to its northern Earth footprint.
+
+    Unlike display-domain traces, this deliberately does not stop at the modeled
+    magnetopause: a full-azimuth wedge needs a continuous Earth-connected boundary.
+    """
+
+    candidates: list[np.ndarray] = []
+    limit_re = max(80.0, abs(config.resolution.tail_x_min_re) * 3.0)
+    footpoint_re = config.l_shells.footpoint_radius_re
+    for direction in (-1.0, 1.0):
+        _, _, _, x, y, z = _geopack().trace(
+            *seed_re,
+            direction,
+            rlim=limit_re,
+            r0=footpoint_re,
+            parmod=parameters,
+            exname=model_name,
+            inname="igrf",
+            maxloop=3000,
+        )
+        points = np.column_stack((x, y, z))
+        endpoint_radius = float(np.linalg.norm(points[-1]))
+        stays_north = bool(np.all(points[:, 2] >= -1e-8))
+        if (
+            endpoint_radius <= footpoint_re * (1.0 + 1e-4)
+            and points[-1, 2] > 0
+            and stays_north
+        ):
+            points[-1] *= footpoint_re / endpoint_radius
+            candidates.append(points)
+    if not candidates:
+        return FieldLineHalf(np.asarray([seed_re]), TraceTerminal.INVALID)
+    points = max(candidates, key=lambda values: values[-1, 2])
+    return FieldLineHalf(points, TraceTerminal.EARTH)
+
+
 def magnetic_field_vector_gsm(
     point_re: np.ndarray,
     model_name: str,

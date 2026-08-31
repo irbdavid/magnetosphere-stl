@@ -125,6 +125,7 @@ class FieldLineTubeSettings:
     """Sparse printable field-line ridges accompanying each L-shell surface."""
 
     enabled: bool = False
+    grooves_enabled: bool = True
     azimuth_spacing_deg: float = 10.0
     dense_spacing_start_l: float = 9.5
     dense_spacing_end_l: float = 60.0
@@ -187,11 +188,44 @@ class FieldLineTubeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class FieldLineWedgeSettings:
+    """Closed northern field-line volumes between configured L-shell pairs."""
+
+    enabled: bool = False
+    l_ranges: tuple[tuple[float, float], ...] = ((8.0, 10.0),)
+    azimuth_spacing_deg: float = 10.0
+
+    def __post_init__(self) -> None:
+        if not self.l_ranges:
+            raise ValueError("field-line wedges require at least one L range")
+        for inner_l, outer_l in self.l_ranges:
+            if inner_l <= 1.0:
+                raise ValueError("field-line wedge inner L must exceed 1")
+            if outer_l <= inner_l:
+                raise ValueError("field-line wedge outer L must exceed inner L")
+        if len(set(self.l_ranges)) != len(self.l_ranges):
+            raise ValueError("field-line wedge L ranges must be unique")
+        if not 0 < self.azimuth_spacing_deg <= 90:
+            raise ValueError(
+                "field-line wedge azimuth spacing must be in (0, 90] degrees"
+            )
+        line_count = 360.0 / self.azimuth_spacing_deg
+        if not line_count.is_integer():
+            raise ValueError(
+                "field-line wedge azimuth spacing must divide 360 degrees evenly"
+            )
+
+    @property
+    def azimuth_count(self) -> int:
+        return round(360.0 / self.azimuth_spacing_deg)
+
+
+@dataclass(frozen=True, slots=True)
 class BowShockSettings:
     """Geometric extent controls for the bow-shock component."""
 
     maximum_cylindrical_radius_re: float | None = None
-    roll_stop_height_re: float = 0.5
+    roll_stop_height_re: float = 6.0
     engraving_enabled: bool = True
     engraving_height_mm: float = 20.0
     engraving_depth_mm: float = 0.5
@@ -381,6 +415,7 @@ class ProjectConfig:
     l_shells: LShellSettings = LShellSettings()
     kelvin_helmholtz: KelvinHelmholtzSettings = KelvinHelmholtzSettings()
     field_line_tubes: FieldLineTubeSettings = FieldLineTubeSettings()
+    field_line_wedges: FieldLineWedgeSettings = FieldLineWedgeSettings()
     bow_shock: BowShockSettings = BowShockSettings()
     convection_streamlines: ConvectionStreamlineSettings = (
         ConvectionStreamlineSettings()

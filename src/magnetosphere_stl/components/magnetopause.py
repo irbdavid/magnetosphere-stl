@@ -3,6 +3,7 @@
 Model reference: https://doi.org/10.1029/98JA01103
 """
 
+import warnings
 from dataclasses import dataclass
 from math import cos, pi, sin, sqrt, tan
 
@@ -10,9 +11,13 @@ import numpy as np
 import trimesh
 from scipy.optimize import brentq
 
+from magnetosphere_stl.components.convection import convection_streamline_mesh
+from magnetosphere_stl.components.polar_field_lines import polar_field_line_mesh
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.axisymmetric import connect_rings, segments_for_circle
 from magnetosphere_stl.models.shue import shue_parameters, shue_radius
+
+MAGNETOPAUSE_ROLL_STOP_CLEARANCE_RE = 1.0
 
 
 def _tail_angle(r0_re: float, alpha: float, tail_x_min_re: float) -> float:
@@ -204,7 +209,51 @@ def _shell_from_surface(
         mesh.invert()
     if not mesh.is_watertight:
         raise RuntimeError("generated magnetopause shell is not watertight")
-    return mesh
+    return _apply_roll_stop(mesh, config)
+
+
+def magnetopause_roll_stop_height_re(config: ProjectConfig) -> float:
+    """Return the bow-shock stop height plus nesting clearance."""
+
+    return (
+        config.bow_shock.roll_stop_height_re
+        + MAGNETOPAUSE_ROLL_STOP_CLEARANCE_RE
+    )
+
+
+def _apply_roll_stop(
+    mesh: trimesh.Trimesh, config: ProjectConfig
+) -> trimesh.Trimesh:
+    """Trim the magnetopause above the bow-shock roll-stop and its lettering."""
+
+    height_mm = magnetopause_roll_stop_height_re(config) * config.earth_radius_mm
+    margin_mm = config.earth_radius_mm
+    lower_z = float(mesh.bounds[0, 2] + height_mm)
+    upper_z = float(mesh.bounds[1, 2] + margin_mm)
+    if lower_z >= upper_z:
+        raise ValueError("magnetopause roll-stop trim removes the entire component")
+    keep_box = trimesh.creation.box(
+        extents=(
+            float(mesh.extents[0] + 2.0 * margin_mm),
+            float(mesh.extents[1] + 2.0 * margin_mm),
+            upper_z - lower_z,
+        ),
+        transform=trimesh.transformations.translation_matrix(
+            (
+                float(mesh.bounds[:, 0].mean()),
+                float(mesh.bounds[:, 1].mean()),
+                0.5 * (lower_z + upper_z),
+            )
+        ),
+    )
+    trimmed = trimesh.boolean.intersection(
+        [mesh, keep_box], engine="manifold", check_volume=True
+    )
+    trimmed.process(validate=True)
+    trimesh.repair.fix_normals(trimmed)
+    if not trimmed.is_volume:
+        raise RuntimeError("magnetopause roll stop did not produce a closed volume")
+    return trimmed
 
 
 def solid_magnetopause_envelope(config: ProjectConfig) -> trimesh.Trimesh:
@@ -239,7 +288,40 @@ def solid_magnetopause_envelope(config: ProjectConfig) -> trimesh.Trimesh:
         mesh.invert()
     if not mesh.is_volume:
         raise RuntimeError("solid magnetopause envelope is not a closed volume")
-    return mesh
+    return _apply_roll_stop(mesh, config)
+
+
+def _groove_peeled_magnetopause(
+    mesh: trimesh.Trimesh,
+    config: ProjectConfig,
+) -> trimesh.Trimesh:
+    """Cut enabled planar tube sets into the matching magnetopause cut faces."""
+
+    cutters: list[trimesh.Trimesh] = []
+    if config.convection_streamlines.enabled:
+        cutters.append(convection_streamline_mesh(config))
+    if config.polar_field_lines.enabled:
+        cutters.append(polar_field_line_mesh(config))
+    if not cutters:
+        return mesh
+
+    grooved = trimesh.boolean.difference(
+        [mesh, *cutters], engine="manifold", check_volume=True
+    )
+    if grooved.is_empty:
+        raise RuntimeError("tube grooves removed the entire peeled magnetopause")
+    grooved.process(validate=True)
+    trimesh.repair.fix_normals(grooved, multibody=True)
+    if not grooved.is_volume:
+        warnings.warn(
+            "tube grooves produced a non-volume peeled magnetopause; exporting it "
+            "for inspection "
+            f"(watertight={grooved.is_watertight}, bodies={grooved.body_count}, "
+            f"euler_number={grooved.euler_number})",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return grooved
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +349,37 @@ class MagnetopauseGenerator:
         if name != self.name:
             raise ValueError(f"unexpected magnetopause artifact: {name}")
         return solid_magnetopause_envelope(config)
+
+    def finish_artifact(
+        self,
+        config: ProjectConfig,
+        name: str,
+        mesh: trimesh.Trimesh,
+    ) -> trimesh.Trimesh:
+        """Groove planar tube sets into the two default magnetopause cut faces."""
+
+        if name != self.name or not config.peel.enabled:
+            return mesh
+        has_cutters = (
+            config.convection_streamlines.enabled
+            or config.polar_field_lines.enabled
+        )
+        if not has_cutters:
+            return mesh
+        peel = config.peel
+        if not (
+            np.isclose(peel.magnetopause_opening_deg, 90.0)
+            and np.isclose(peel.boundary_center_clock_deg, 45.0)
+        ):
+            warnings.warn(
+                "skipping convection and polar-fan grooves because the peeled "
+                "magnetopause faces are not the X-Y and X-Z planes; grooving "
+                "requires a 90 degree opening centered at 45 degrees",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return mesh
+        return _groove_peeled_magnetopause(mesh, config)
 
     def generate(self, config: ProjectConfig) -> dict[str, trimesh.Trimesh]:
         (

@@ -23,14 +23,43 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert cli.main(["--defaults"]) == 0
     config = captured["config"]
     assert config.field_line_tubes.enabled
+    assert config.field_line_tubes.grooves_enabled
     assert config.convection_streamlines.enabled
     assert config.polar_field_lines.enabled
     assert config.polar_field_lines.angular_spacing_deg == 2.0
-    assert config.bow_shock.roll_stop_height_re == 0.5
+    assert config.bow_shock.roll_stop_height_re == 6.0
     assert not config.kelvin_helmholtz.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default")
     assert captured["overwrite"] is False
+
+
+def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, overwrite=False):
+        captured.update(config=config, output_dir=output_dir)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults-high"]) == 0
+    config = captured["config"]
+    assert config.solar_wind.dynamic_pressure_npa == 50.0
+    assert config.solar_wind.imf_bz_nt == -20.0
+    assert config.solar_wind.dst_nt == -10.0
+    assert config.solar_wind.kp == 2.0
+    assert config.field_line_tubes.enabled
+    assert config.convection_streamlines.enabled
+    assert config.polar_field_lines.enabled
+    assert config.peel.enabled
+    assert captured["output_dir"] == Path("output/default-high")
+
+
+def test_default_presets_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--defaults", "--defaults-high"])
 
 
 def test_output_is_required_for_non_default_run() -> None:
@@ -67,6 +96,21 @@ def test_defaults_can_disable_optional_features(monkeypatch) -> None:
     assert not config.kelvin_helmholtz.enabled
     assert not config.peel.enabled
     assert not config.bow_shock.engraving_enabled
+
+
+def test_field_line_grooves_can_be_disabled(monkeypatch) -> None:
+    captured = {}
+
+    def fake_generate_all(config, output_dir, *, overwrite=False):
+        captured["config"] = config
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    cli.main(["--defaults", "--no-field-line-grooves"])
+
+    assert not captured["config"].field_line_tubes.grooves_enabled
 
 
 def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) -> None:
@@ -110,4 +154,46 @@ def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) ->
     assert len(generators) == 1
     assert generators[0].output_names(config) == (
         "equatorial_convection_streamlines",
+    )
+
+
+def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(
+        config,
+        output_dir,
+        *,
+        generators=None,
+        overwrite=False,
+    ):
+        captured.update(config=config, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert (
+        cli.main(
+            [
+                "--output",
+                str(tmp_path),
+                "--only",
+                "field-line-wedges",
+                "--field-line-wedge-ranges",
+                "8:10,10:12",
+                "--field-line-wedge-azimuth-spacing-deg",
+                "30",
+            ]
+        )
+        == 0
+    )
+    config = captured["config"]
+    generators = captured["generators"]
+    assert config.field_line_wedges.enabled
+    assert config.field_line_wedges.l_ranges == ((8.0, 10.0), (10.0, 12.0))
+    assert config.field_line_wedges.azimuth_count == 12
+    assert generators[0].output_names(config) == (
+        "field_line_wedge_l8_l10",
+        "field_line_wedge_l10_l12",
     )

@@ -102,6 +102,7 @@ def engrave_bottom_strip(
     along_axis: Literal["x", "y"] = "y",
     character_width_ratio: float = 1.0,
     mirror_longitudinal: bool = False,
+    transverse_center_mm: float | None = None,
 ) -> trimesh.Trimesh:
     """Boolean-subtract bitmap text along a mesh's lowest horizontal strip.
 
@@ -161,9 +162,16 @@ def engrave_bottom_strip(
         )
         usable_lower = max(interval[0] for interval in sample_intervals)
         usable_upper = min(interval[1] for interval in sample_intervals)
-        center_transverse = usable_upper - 0.5 * plate_width
+        center_transverse = (
+            usable_upper - 0.5 * plate_width
+            if transverse_center_mm is None
+            else transverse_center_mm
+        )
         centers.append((center_transverse, longitudinal))
-        needs_backing |= usable_upper - usable_lower < plate_width
+        needs_backing |= (
+            center_transverse - 0.5 * plate_width < usable_lower
+            or center_transverse + 0.5 * plate_width > usable_upper
+        )
 
     engraved_base = mesh
     if needs_backing:

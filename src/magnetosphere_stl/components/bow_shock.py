@@ -1,5 +1,6 @@
 """Printable Jelínek et al. (2012) bow-shock surface."""
 
+import warnings
 from dataclasses import dataclass
 from math import cos, pi, sin, sqrt
 
@@ -183,16 +184,27 @@ def _apply_engraving(
         or name != "bow_shock"
     ):
         return mesh
-    return engrave_bottom_strip(
-        mesh,
-        "Earth's Magnetosphere / irf.se",
-        height_mm=settings.engraving_height_mm,
-        depth_mm=settings.engraving_depth_mm,
-        backing_mm=config.minimum_wall_mm,
-        along_axis="x",
-        character_width_ratio=0.75,
-        mirror_longitudinal=True,
-    )
+    try:
+        return engrave_bottom_strip(
+            mesh,
+            "Earth's Magnetosphere / irf.se",
+            height_mm=settings.engraving_height_mm,
+            depth_mm=settings.engraving_depth_mm,
+            backing_mm=config.minimum_wall_mm,
+            along_axis="x",
+            character_width_ratio=0.75,
+            mirror_longitudinal=True,
+            transverse_center_mm=0.0,
+        )
+    except ValueError as error:
+        if str(error) != "engraving text is longer than the bow-shock roll-stop":
+            raise
+        warnings.warn(
+            f"{error}; exporting the bow shock without engraving",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return mesh
 
 
 def solid_bow_shock_envelope(config: ProjectConfig) -> trimesh.Trimesh:

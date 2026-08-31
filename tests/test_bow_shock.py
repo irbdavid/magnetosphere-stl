@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import trimesh
 
 from magnetosphere_stl import (
     BowShockSettings,
@@ -8,7 +9,8 @@ from magnetosphere_stl import (
     ProjectConfig,
     SolarWindConditions,
 )
-from magnetosphere_stl.components import BowShockGenerator
+from magnetosphere_stl.components import BowShockGenerator, MagnetopauseGenerator
+from magnetosphere_stl.components import bow_shock as bow_shock_component
 from magnetosphere_stl.components.bow_shock import (
     bow_shock_clip_radius_re,
     solid_bow_shock_envelope,
@@ -80,6 +82,35 @@ def test_bow_shock_clip_radius_matches_magnetopause_at_tail_boundary() -> None:
     )
 
 
+def test_extreme_storm_conditions_reach_magnetopause_and_bow_shock_models() -> None:
+    config = _coarse_config(
+        solar_wind=SolarWindConditions(
+            dynamic_pressure_npa=50.0,
+            dst_nt=-10.0,
+            imf_by_nt=0.0,
+            imf_bz_nt=-20.0,
+            kp=2.0,
+        )
+    )
+    magnetopause = MagnetopauseGenerator().generate(config)["magnetopause"]
+    bow_shock = BowShockGenerator().generate(config)["bow_shock"]
+    magnetopause_r0, _ = shue_parameters(50.0, -20.0)
+
+    assert magnetopause.bounds[1, 0] == pytest.approx(
+        magnetopause_r0 * config.earth_radius_mm, abs=0.01
+    )
+    assert bow_shock.bounds[1, 0] == pytest.approx(
+        bow_shock_standoff_re(50.0) * config.earth_radius_mm, abs=0.01
+    )
+    assert bow_shock_clip_radius_re(config) == pytest.approx(
+        shue_transverse_radius_at_x(
+            config.resolution.tail_x_min_re,
+            50.0,
+            -20.0,
+        )
+    )
+
+
 def test_solid_bow_shock_reaches_shared_tail_plane_inside_cylinder() -> None:
     config = _coarse_config()
     solid = solid_bow_shock_envelope(config)
@@ -104,7 +135,8 @@ def test_bow_shock_roll_stop_creates_a_flat_lower_surface() -> None:
 
     assert bottom == pytest.approx(
         untrimmed.vertices[:, 2].min()
-        + 0.5 * trimmed_config.earth_radius_mm,
+        + trimmed_config.bow_shock.roll_stop_height_re
+        * trimmed_config.earth_radius_mm,
         abs=0.02,
     )
     assert on_bottom.sum() > 4
@@ -141,6 +173,26 @@ def test_bow_shock_roll_stop_engraving_is_backed_and_recessed() -> None:
     assert len(engraved.faces) > len(plain.faces)
     assert len(recess_vertices) > 100
     assert np.ptp(recess_vertices[:, 0]) > 10.0 * np.ptp(recess_vertices[:, 1])
+    assert recess_vertices[:, 1].min() == pytest.approx(
+        -recess_vertices[:, 1].max(), abs=0.01
+    )
+
+
+def test_oversize_engraving_warns_and_leaves_bow_shock_plain(monkeypatch) -> None:
+    config = _coarse_config(peel=PeelSettings(enabled=True))
+    mesh = trimesh.creation.box()
+    monkeypatch.setattr(
+        bow_shock_component,
+        "engrave_bottom_strip",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("engraving text is longer than the bow-shock roll-stop")
+        ),
+    )
+
+    with pytest.warns(RuntimeWarning, match="without engraving"):
+        result = BowShockGenerator().finish_artifact(config, "bow_shock", mesh)
+
+    assert result is mesh
 
 
 def test_peeled_bow_shock_is_a_solid_cutaway() -> None:
