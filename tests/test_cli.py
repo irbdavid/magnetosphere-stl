@@ -25,6 +25,8 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert config.field_line_tubes.enabled
     assert config.convection_streamlines.enabled
     assert config.polar_field_lines.enabled
+    assert config.polar_field_lines.angular_spacing_deg == 2.0
+    assert config.bow_shock.roll_stop_height_re == 0.5
     assert not config.kelvin_helmholtz.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default")

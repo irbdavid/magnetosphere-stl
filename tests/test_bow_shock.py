@@ -90,12 +90,12 @@ def test_solid_bow_shock_reaches_shared_tail_plane_inside_cylinder() -> None:
     )
 
 
-def test_bow_shock_roll_stop_creates_a_small_flat_lower_surface() -> None:
+def test_bow_shock_roll_stop_creates_a_flat_lower_surface() -> None:
     untrimmed_config = _coarse_config(
         bow_shock=BowShockSettings(roll_stop_height_re=0.0)
     )
     trimmed_config = _coarse_config(
-        bow_shock=BowShockSettings(roll_stop_height_re=0.25)
+        bow_shock=BowShockSettings()
     )
     untrimmed = BowShockGenerator().generate(untrimmed_config)["bow_shock"]
     trimmed = BowShockGenerator().generate(trimmed_config)["bow_shock"]
@@ -104,7 +104,7 @@ def test_bow_shock_roll_stop_creates_a_small_flat_lower_surface() -> None:
 
     assert bottom == pytest.approx(
         untrimmed.vertices[:, 2].min()
-        + 0.25 * trimmed_config.earth_radius_mm,
+        + 0.5 * trimmed_config.earth_radius_mm,
         abs=0.02,
     )
     assert on_bottom.sum() > 4

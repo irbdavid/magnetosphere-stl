@@ -64,7 +64,7 @@ domain boundary, then intersected with a cylinder centered on the X axis. By def
 the cylinder radius is the projected transverse radius of the Shue magnetopause at
 that same tail boundary, so both components have a consistent downstream footprint.
 Use `--bow-shock-max-radius-re` only to override that derived radius. The component is
-also trimmed `0.25 R_E` above its lowest −Z extent, creating a modest horizontal
+also trimmed `0.5 R_E` above its lowest −Z extent, creating a horizontal
 roll-stop surface; change or disable it with `--bow-shock-roll-stop-height-re`. The
 peeled roll-stop is engraved along GSM X by default with
 `Earth's Magnetosphere / irf.se`, oriented to read from beneath the print; disable the label with
@@ -123,7 +123,7 @@ whole number of equally spaced field lines. Control the profile with
 `--tube-dense-spacing-end-l`, and `--tube-min-azimuth-spacing-deg`.
 
 All printable tube systems enforce a minimum 2 mm diameter. L-shell ridge tubes
-default to that minimum, with an eight-sided cross section and 2 mm path sampling.
+default to 4 mm, with an eight-sided cross section and 2 mm path sampling.
 Control these with `--tube-diameter-mm`, `--tube-sides`, and
 `--tube-path-step-mm`. The inner and minimum spacing anchors must divide 360° evenly.
 Tubes inherit their L-shell's field-aligned sector selection by default. Exact tubes
@@ -269,7 +269,7 @@ changes drift speed but not these un-oriented printable paths.
 The contour grid covers the complete equatorial Shue magnetosphere: from the
 configured negative-X tail plane to the subsolar nose, and across the full dawn–dusk
 width of the magnetopause at that tail plane. Defaults seed potential levels at radii
-2, 3, 4, 5, 6, 8, 10, 15, 25, and 40 R_E and sweep them into 2 mm, eight-sided
+2, 3, 4, 5, 6, 8, 10, 15, 25, and 40 R_E and sweep them into 4 mm, eight-sided
 tubes. Twelve additional levels are drawn from quantiles across the full domain's
 potential distribution so the distant dawn and dusk sectors are represented rather
 than concentrating every path near midnight-derived potentials. Configure the sampling and
@@ -299,14 +299,14 @@ potential. See [Volland (1973)](https://doi.org/10.1029/JA078i001p00171) and the
 
 ## Northern polar field-line fan
 
-Add `--polar-field-lines` to export `polar_field_lines.stl`. By default, 61 field
-lines start just above Earth's northern surface at 1° intervals spanning ±30° from
+Add `--polar-field-lines` to export `polar_field_lines.stl`. By default, 31 field
+lines start just above Earth's northern surface at 2° intervals spanning ±30° from
 the +Z pole in the GSM X–Z meridian. Each line follows the configured
 Tsyganenko/IGRF field outward until it reaches Earth, the magnetopause, or the
 configured negative-X boundary. The traced coordinates are then placed exactly in
 the X–Z display plane so the result can serve as a clear meridional visual element.
 
-The fan uses capped 2 mm, eight-sided tubes. Its lightweight display tracer steps
+The fan uses capped 4 mm, eight-sided tubes. Its lightweight display tracer steps
 at `0.1 R_E`, independently of the more precise L-shell tracer, and the printable
 centerlines are sampled every 2 mm. Configure these with
 `--polar-half-width-deg`, `--polar-angular-spacing-deg`,

@@ -39,6 +39,13 @@ def test_polar_seeds_span_northern_x_z_meridian() -> None:
     )
 
 
+def test_default_polar_fan_uses_two_degree_spacing() -> None:
+    settings = PolarFieldLineSettings()
+
+    assert settings.angular_spacing_deg == 2.0
+    assert settings.line_count == 31
+
+
 def test_polar_field_line_fan_is_a_printable_planar_tube_set() -> None:
     config = _coarse_config()
     generator = PolarFieldLineGenerator()

@@ -28,9 +28,9 @@ def test_tube_mesh_is_watertight() -> None:
         (PolarFieldLineSettings, "tube_diameter_mm"),
     ),
 )
-def test_all_printable_tubes_enforce_two_mm_minimum(
+def test_all_printable_tubes_default_to_four_mm_and_enforce_two_mm_minimum(
     settings_type, diameter_field
 ) -> None:
-    assert getattr(settings_type(), diameter_field) == 2.0
+    assert getattr(settings_type(), diameter_field) == 4.0
     with pytest.raises(ValueError, match="at least 2 mm"):
         settings_type(**{diameter_field: 1.99})

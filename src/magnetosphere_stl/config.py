@@ -6,6 +6,7 @@ from enum import StrEnum
 from math import sqrt
 
 MINIMUM_TUBE_DIAMETER_MM = 2.0
+DEFAULT_TUBE_DIAMETER_MM = 4.0
 
 
 class FieldModel(StrEnum):
@@ -128,7 +129,7 @@ class FieldLineTubeSettings:
     dense_spacing_start_l: float = 9.5
     dense_spacing_end_l: float = 60.0
     minimum_azimuth_spacing_deg: float = 3.0
-    diameter_mm: float = 2.0
+    diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
     cross_section_sides: int = 8
     path_step_mm: float = 2.0
     peel_with_l_shells: bool = True
@@ -190,7 +191,7 @@ class BowShockSettings:
     """Geometric extent controls for the bow-shock component."""
 
     maximum_cylindrical_radius_re: float | None = None
-    roll_stop_height_re: float = 0.25
+    roll_stop_height_re: float = 0.5
     engraving_enabled: bool = True
     engraving_height_mm: float = 20.0
     engraving_depth_mm: float = 0.5
@@ -228,7 +229,7 @@ class ConvectionStreamlineSettings:
     )
     domain_level_count: int = 12
     grid_step_re: float = 0.10
-    tube_diameter_mm: float = MINIMUM_TUBE_DIAMETER_MM
+    tube_diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
     tube_sides: int = 8
     path_step_mm: float = 2.0
     corotation_potential_kv: float = 92.4
@@ -258,8 +259,8 @@ class PolarFieldLineSettings:
 
     enabled: bool = False
     half_width_deg: float = 30.0
-    angular_spacing_deg: float = 1.0
-    tube_diameter_mm: float = MINIMUM_TUBE_DIAMETER_MM
+    angular_spacing_deg: float = 2.0
+    tube_diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
     tube_sides: int = 8
     trace_step_re: float = 0.1
     path_step_mm: float = 2.0

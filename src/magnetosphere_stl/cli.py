@@ -130,15 +130,28 @@ def build_parser() -> argparse.ArgumentParser:
             "magnetopause at the tail boundary"
         ),
     )
-    parser.add_argument("--bow-shock-roll-stop-height-re", type=float, default=0.25)
+    bow_shock_defaults = BowShockSettings()
+    parser.add_argument(
+        "--bow-shock-roll-stop-height-re",
+        type=float,
+        default=bow_shock_defaults.roll_stop_height_re,
+    )
     parser.add_argument(
         "--bow-shock-engraving",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="engrave the project label into the bow-shock roll-stop",
     )
-    parser.add_argument("--bow-shock-engraving-height-mm", type=float, default=20.0)
-    parser.add_argument("--bow-shock-engraving-depth-mm", type=float, default=0.5)
+    parser.add_argument(
+        "--bow-shock-engraving-height-mm",
+        type=float,
+        default=bow_shock_defaults.engraving_height_mm,
+    )
+    parser.add_argument(
+        "--bow-shock-engraving-depth-mm",
+        type=float,
+        default=bow_shock_defaults.engraving_depth_mm,
+    )
     convection_defaults = ConvectionStreamlineSettings()
     parser.add_argument(
         "--convection-streamlines",
