@@ -282,11 +282,13 @@ scientific shells. The surface mesh is calculated only once for each boundary.
 
 When the convection streamlines or polar fan are enabled, their tube geometry is also
 subtracted from the matching planar face of `magnetopause.stl`: convection paths form
-grooves in the X–Y face and polar field lines form grooves in the X–Z face. Their
-standalone tube STLs are still exported for assembly. This alignment is defined only
-for the default 90° magnetopause opening centered at 45°. Changing either peel value
-skips these grooves with a warning because the cut faces no longer coincide with the
-two tube planes.
+grooves in the X–Y face and polar field lines form grooves in the X–Z face. Only the
+Y ≥ 0 half of the convection cutter and the Z ≥ 0 half of the polar cutter are used,
+preventing their opposite halves from leaving internal surfaces in the magnetopause.
+Their standalone tube STLs are still exported in full for assembly. This alignment is
+defined only for the default 90° magnetopause opening centered at 45°. Changing either
+peel value skips these grooves with a warning because the cut faces no longer coincide
+with the two tube planes.
 
 Closed meshes use a true Manifold boolean difference. For peeling, the magnetopause's
 thin scientific shell is replaced at the export boundary by the complete volume

@@ -291,6 +291,32 @@ def solid_magnetopause_envelope(config: ProjectConfig) -> trimesh.Trimesh:
     return _apply_roll_stop(mesh, config)
 
 
+def _clip_cutter_to_positive_halfspace(
+    mesh: trimesh.Trimesh,
+    axis: int,
+) -> trimesh.Trimesh:
+    """Return the closed part of a cutter on or above an axis-aligned plane."""
+
+    if mesh.is_empty or mesh.bounds[1, axis] <= 0.0:
+        return trimesh.Trimesh()
+    if mesh.bounds[0, axis] >= 0.0:
+        return mesh.copy()
+
+    margin = max(float(mesh.extents.max()), 1.0)
+    lower = mesh.bounds[0] - margin
+    upper = mesh.bounds[1] + margin
+    lower[axis] = 0.0
+    keep_box = trimesh.creation.box(bounds=np.vstack((lower, upper)))
+    clipped = trimesh.boolean.intersection(
+        [mesh, keep_box], engine="manifold", check_volume=True
+    )
+    clipped.process(validate=True)
+    trimesh.repair.fix_normals(clipped, multibody=True)
+    if not clipped.is_volume:
+        raise RuntimeError("tube cutter clipping did not produce a closed volume")
+    return clipped
+
+
 def _groove_peeled_magnetopause(
     mesh: trimesh.Trimesh,
     config: ProjectConfig,
@@ -299,9 +325,18 @@ def _groove_peeled_magnetopause(
 
     cutters: list[trimesh.Trimesh] = []
     if config.convection_streamlines.enabled:
-        cutters.append(convection_streamline_mesh(config))
+        cutters.append(
+            _clip_cutter_to_positive_halfspace(
+                convection_streamline_mesh(config), axis=1
+            )
+        )
     if config.polar_field_lines.enabled:
-        cutters.append(polar_field_line_mesh(config))
+        cutters.append(
+            _clip_cutter_to_positive_halfspace(
+                polar_field_line_mesh(config), axis=2
+            )
+        )
+    cutters = [cutter for cutter in cutters if not cutter.is_empty]
     if not cutters:
         return mesh
 

@@ -18,6 +18,7 @@ from magnetosphere_stl.components import magnetopause as magnetopause_component
 from magnetosphere_stl.components.magnetopause import (
     MagnetopauseGenerator,
     _apply_kelvin_helmholtz,
+    _clip_cutter_to_positive_halfspace,
     _groove_peeled_magnetopause,
     _surface_mesh_re,
     magnetopause_roll_stop_height_re,
@@ -108,11 +109,37 @@ def test_planar_tube_sets_are_cut_into_peeled_magnetopause(monkeypatch) -> None:
     monkeypatch.setattr(
         magnetopause_component, "polar_field_line_mesh", lambda config: xz_cutter
     )
+    clipped_axes = []
+    original_clip = _clip_cutter_to_positive_halfspace
+
+    def record_clip(mesh, axis):
+        clipped_axes.append(axis)
+        return original_clip(mesh, axis)
+
+    monkeypatch.setattr(
+        magnetopause_component,
+        "_clip_cutter_to_positive_halfspace",
+        record_clip,
+    )
 
     grooved = _groove_peeled_magnetopause(magnetopause, config)
 
     assert grooved.is_volume
     assert grooved.volume < magnetopause.volume
+    assert clipped_axes == [1, 2]
+    assert xy_cutter.bounds[0, 1] < 0.0
+    assert xz_cutter.bounds[0, 2] < 0.0
+
+
+@pytest.mark.parametrize("axis", [1, 2])
+def test_tube_cutter_positive_halfspace_is_closed(axis) -> None:
+    cutter = trimesh.creation.box(extents=(8.0, 4.0, 6.0))
+
+    clipped = _clip_cutter_to_positive_halfspace(cutter, axis)
+
+    assert clipped.is_volume
+    assert clipped.bounds[0, axis] == pytest.approx(0.0, abs=1e-9)
+    assert clipped.volume == pytest.approx(cutter.volume / 2.0)
 
 
 @pytest.mark.parametrize(
