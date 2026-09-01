@@ -270,7 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--field-line-wedges",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="export closed full-azimuth northern volumes between L-shell pairs",
+        help="export closed northern volumes between L-shell pairs",
     )
     parser.add_argument(
         "--field-line-wedge-ranges",
@@ -282,6 +282,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--field-line-wedge-azimuth-spacing-deg",
         type=float,
         default=wedge_defaults.azimuth_spacing_deg,
+    )
+    parser.add_argument(
+        "--field-line-wedge-grooves",
+        action=argparse.BooleanOptionalAction,
+        default=wedge_defaults.grooves_enabled,
+        help="engrave the traced inner and outer field lines into each wedge",
+    )
+    parser.add_argument(
+        "--field-line-wedge-quadrant",
+        action=argparse.BooleanOptionalAction,
+        default=wedge_defaults.quadrant_only,
+        help="limit wedges to the watertight +Y/+Z quadrant (default: enabled)",
     )
     parser.add_argument(
         "--field-line-tubes",
@@ -538,6 +550,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             config,
             field_line_wedges=FieldLineWedgeSettings(
                 enabled=wedge_enabled,
+                grooves_enabled=args.field_line_wedge_grooves,
+                quadrant_only=args.field_line_wedge_quadrant,
                 l_ranges=args.field_line_wedge_ranges,
                 azimuth_spacing_deg=(
                     args.field_line_wedge_azimuth_spacing_deg
@@ -633,6 +647,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             field_line_wedges=FieldLineWedgeSettings(
                 enabled=wedge_enabled,
+                grooves_enabled=args.field_line_wedge_grooves,
+                quadrant_only=args.field_line_wedge_quadrant,
                 l_ranges=args.field_line_wedge_ranges,
                 azimuth_spacing_deg=(
                     args.field_line_wedge_azimuth_spacing_deg

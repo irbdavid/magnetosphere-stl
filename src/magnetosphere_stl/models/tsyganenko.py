@@ -180,7 +180,8 @@ def trace_northern_field_half(
     """Trace from an equatorial seed to its northern Earth footprint.
 
     Unlike display-domain traces, this deliberately does not stop at the modeled
-    magnetopause: a full-azimuth wedge needs a continuous Earth-connected boundary.
+    magnetopause: a wedge needs a continuous Earth-connected boundary before its
+    completed trace can be classified against the magnetopause.
     """
 
     candidates: list[np.ndarray] = []

@@ -184,6 +184,8 @@ def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None
                 "8:10,10:12",
                 "--field-line-wedge-azimuth-spacing-deg",
                 "30",
+                "--field-line-wedge-grooves",
+                "--no-field-line-wedge-quadrant",
             ]
         )
         == 0
@@ -191,6 +193,8 @@ def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None
     config = captured["config"]
     generators = captured["generators"]
     assert config.field_line_wedges.enabled
+    assert config.field_line_wedges.grooves_enabled
+    assert not config.field_line_wedges.quadrant_only
     assert config.field_line_wedges.l_ranges == ((8.0, 10.0), (10.0, 12.0))
     assert config.field_line_wedges.azimuth_count == 12
     assert generators[0].output_names(config) == (

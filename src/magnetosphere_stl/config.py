@@ -192,6 +192,8 @@ class FieldLineWedgeSettings:
     """Closed northern field-line volumes between configured L-shell pairs."""
 
     enabled: bool = False
+    grooves_enabled: bool = False
+    quadrant_only: bool = True
     l_ranges: tuple[tuple[float, float], ...] = ((8.0, 10.0),)
     azimuth_spacing_deg: float = 10.0
 

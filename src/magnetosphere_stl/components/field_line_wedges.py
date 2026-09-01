@@ -1,5 +1,6 @@
 """Closed northern field-line volumes between pairs of equatorial L values."""
 
+import warnings
 from dataclasses import dataclass
 from math import ceil, cos, pi, sin
 
@@ -7,6 +8,7 @@ import numpy as np
 import trimesh
 
 from magnetosphere_stl.config import ProjectConfig
+from magnetosphere_stl.geometry.tubes import resample_polyline, tube_mesh
 from magnetosphere_stl.models.shue import inside_shue_magnetopause
 from magnetosphere_stl.models.tsyganenko import (
     TraceTerminal,
@@ -154,7 +156,8 @@ def _northern_wedge_mesh(
             for trace in (*inner_traces, *outer_traces)
         )
         path_count = max(
-            3, ceil(maximum_length / config.resolution.field_line_step_re) + 1
+            3,
+            ceil(maximum_length / config.resolution.target_edge_length_re) + 1,
         )
     elif path_count < 3:
         raise ValueError("wedge path count must be at least three")
@@ -295,10 +298,137 @@ def _trace_stays_inside_magnetopause(
     )
 
 
+def _field_line_groove_cutter(
+    traces: list[np.ndarray], config: ProjectConfig
+) -> trimesh.Trimesh:
+    """Build closed tube cutters along traced wedge boundary field lines."""
+
+    settings = config.field_line_tubes
+    tubes = []
+    for trace in traces:
+        points_mm = trace * config.earth_radius_mm
+        extension_mm = settings.diameter_mm
+        start_direction = points_mm[0] - points_mm[1]
+        end_direction = points_mm[-1] - points_mm[-2]
+        extended = np.vstack(
+            (
+                points_mm[0]
+                + extension_mm * start_direction / np.linalg.norm(start_direction),
+                points_mm,
+                points_mm[-1]
+                + extension_mm * end_direction / np.linalg.norm(end_direction),
+            )
+        )
+        sampled = resample_polyline(extended, settings.path_step_mm)
+        tubes.append(
+            tube_mesh(
+                sampled,
+                settings.diameter_mm / 2.0,
+                sides=settings.cross_section_sides,
+            )
+        )
+    cutter = trimesh.util.concatenate(tubes)
+    if not cutter.is_volume:
+        raise RuntimeError("wedge field-line cutters are not closed volumes")
+    return cutter
+
+
+def _inset_boundary_traces(
+    inner_traces: list[np.ndarray],
+    outer_traces: list[np.ndarray],
+    config: ProjectConfig,
+) -> list[np.ndarray]:
+    """Move groove centerlines just inside the paired magnetic surfaces."""
+
+    inset_re = (
+        0.01
+        * config.field_line_tubes.diameter_mm
+        / config.earth_radius_mm
+    )
+    traces: list[np.ndarray] = []
+    for inner, outer in zip(inner_traces, outer_traces, strict=True):
+        count = max(len(inner), len(outer))
+        inner_sampled = _resample_count(inner, count)
+        outer_sampled = _resample_count(outer, count)
+        inward = outer_sampled - inner_sampled
+        inward /= np.linalg.norm(inward, axis=1)[:, None]
+        traces.extend(
+            (
+                inner_sampled + inset_re * inward,
+                outer_sampled - inset_re * inward,
+            )
+        )
+    return traces
+
+
+def _engrave_wedge_field_lines(
+    wedge: trimesh.Trimesh,
+    traces: list[np.ndarray],
+    config: ProjectConfig,
+    artifact_name: str,
+) -> trimesh.Trimesh:
+    """Subtract the traced inner and outer magnetic lines from one wedge."""
+
+    cutter = _field_line_groove_cutter(traces, config)
+    grooved = trimesh.boolean.difference(
+        [wedge, cutter], engine="manifold", check_volume=True
+    )
+    if grooved.is_empty:
+        raise RuntimeError(
+            f"field-line grooves removed the entire {artifact_name} component"
+        )
+    if grooved.is_volume:
+        return grooved
+    grooved.process(validate=True)
+    trimesh.repair.fix_normals(grooved, multibody=True)
+    if not grooved.is_volume:
+        warnings.warn(
+            f"field-line groove subtraction for {artifact_name} produced a "
+            "non-volume mesh; exporting it for inspection "
+            f"(watertight={grooved.is_watertight}, bodies={grooved.body_count}, "
+            f"euler_number={grooved.euler_number})",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return grooved
+
+
+def _wedge_angles(config: ProjectConfig) -> list[float]:
+    """Return full-ring or positive-Y azimuth samples with exact clip boundaries."""
+
+    settings = config.field_line_wedges
+    if not settings.quadrant_only:
+        return [
+            2.0 * pi * index / settings.azimuth_count
+            for index in range(settings.azimuth_count)
+        ]
+    angles_deg = list(
+        np.arange(0.0, 180.0, settings.azimuth_spacing_deg, dtype=float)
+    )
+    angles_deg.append(180.0)
+    return [angle * pi / 180.0 for angle in angles_deg]
+
+
 def _valid_trace_sectors(
     records: list[_TracePair | None],
+    *,
+    cyclic: bool = True,
 ) -> list[tuple[list[_TracePair], bool]]:
-    """Return cyclic valid runs, retaining their last good sampled boundaries."""
+    """Return valid runs, retaining their last good sampled boundaries."""
+
+    if not cyclic:
+        sectors: list[tuple[list[_TracePair], bool]] = []
+        current: list[_TracePair] = []
+        for record in records:
+            if record is None:
+                if len(current) >= 2:
+                    sectors.append((current, False))
+                current = []
+            else:
+                current.append(record)
+        if len(current) >= 2:
+            sectors.append((current, False))
+        return sectors
 
     if records and all(record is not None for record in records):
         return [([record for record in records if record is not None], True)]
@@ -325,7 +455,7 @@ def _valid_trace_sectors(
 
 @dataclass(frozen=True, slots=True)
 class FieldLineWedgeGenerator:
-    """Generate full-azimuth northern volumes for configured L ranges."""
+    """Generate closed northern volumes for configured L ranges."""
 
     def output_names(self, config: ProjectConfig) -> tuple[str, ...]:
         if not config.field_line_wedges.enabled:
@@ -339,11 +469,13 @@ class FieldLineWedgeGenerator:
         settings = config.field_line_wedges
         if not settings.enabled:
             return {}
+        scope = "+Y/+Z quadrant" if settings.quadrant_only else "full northern half"
+        print(
+            f"Preparing field-line wedges: {len(settings.l_ranges)} range(s), "
+            f"{scope}"
+        )
         model_name, parameters = prepare_model(config)
-        angles = [
-            2.0 * pi * index / settings.azimuth_count
-            for index in range(settings.azimuth_count)
-        ]
+        angles = _wedge_angles(config)
         trace_cache: dict[tuple[float, float], np.ndarray | None] = {}
 
         def trace(l_value: float, angle: float) -> np.ndarray | None:
@@ -364,8 +496,11 @@ class FieldLineWedgeGenerator:
 
         prepared: dict[str, list[_SectorGeometry]] = {}
         for inner_l, outer_l in settings.l_ranges:
+            range_label = f"L={inner_l:g}–{outer_l:g}"
+            print(f"Tracing wedge {range_label}: {len(angles)} azimuths")
             records: list[_TracePair | None] = []
-            for angle in angles:
+            progress_interval = max(1, len(angles) // 6)
+            for index, angle in enumerate(angles, start=1):
                 inner_trace = trace(inner_l, angle)
                 outer_trace = trace(outer_l, angle)
                 if (
@@ -377,7 +512,12 @@ class FieldLineWedgeGenerator:
                     records.append(_TracePair(angle, inner_trace, outer_trace))
                 else:
                     records.append(None)
-            sectors = _valid_trace_sectors(records)
+                if index % progress_interval == 0 or index == len(angles):
+                    print(f"  {range_label}: {index}/{len(angles)} azimuths traced")
+            sectors = _valid_trace_sectors(
+                records,
+                cyclic=not settings.quadrant_only,
+            )
             if not sectors:
                 raise RuntimeError(
                     f"L={inner_l:g}–{outer_l:g} has no printable northern "
@@ -421,6 +561,11 @@ class FieldLineWedgeGenerator:
                             cap.append(field_line)
                         return cap
 
+                    print(
+                        f"  {range_label}: tracing caps at "
+                        f"{sector[0].angle * 180.0 / pi:g}° and "
+                        f"{sector[-1].angle * 180.0 / pi:g}°"
+                    )
                     start_cap_traces = traced_cap(sector[0].angle)
                     end_cap_traces = traced_cap(sector[-1].angle)
                 sector_geometries.append(
@@ -448,11 +593,12 @@ class FieldLineWedgeGenerator:
         )
         shared_path_count = max(
             3,
-            ceil(maximum_length / config.resolution.field_line_step_re) + 1,
+            ceil(maximum_length / config.resolution.target_edge_length_re) + 1,
         )
         artifacts: dict[str, trimesh.Trimesh] = {}
         for name, sector_geometries in prepared.items():
-            artifacts[name] = trimesh.util.concatenate(
+            print(f"Meshing {name}: {len(sector_geometries)} sector(s)")
+            wedge = trimesh.util.concatenate(
                 [
                     _northern_wedge_mesh(
                         geometry.inner,
@@ -465,5 +611,27 @@ class FieldLineWedgeGenerator:
                     )
                     for geometry in sector_geometries
                 ]
+            )
+            if settings.grooves_enabled:
+                print(f"Engraving field-line grooves into {name}")
+                boundary_traces = [
+                    trace
+                    for geometry in sector_geometries
+                    for trace in _inset_boundary_traces(
+                        geometry.inner,
+                        geometry.outer,
+                        config,
+                    )
+                ]
+                wedge = _engrave_wedge_field_lines(
+                    wedge,
+                    boundary_traces,
+                    config,
+                    name,
+                )
+            artifacts[name] = wedge
+            print(
+                f"Completed {name}: {len(wedge.vertices):,} vertices, "
+                f"{len(wedge.faces):,} faces"
             )
         return artifacts

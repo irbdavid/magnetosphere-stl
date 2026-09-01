@@ -143,15 +143,17 @@ alongside a peeled shell instead.
 uv run magnetosphere-stl --defaults --peel --field-line-tubes --overwrite
 ```
 
-## Full-azimuth northern field-line wedges
+## Northern field-line wedges
 
 The opt-in `field-line-wedges` component creates closed construction volumes between
 pairs of L values. For each range, it traces the inner and outer equatorial seed rings
 at fixed azimuth spacing, keeps only the northern (`+Z`) Earth-connected half of every
 field line, and lofts those traces into the inner and outer magnetic surfaces. A
 sampled annulus closes the volume in the equatorial plane and a spherical annulus
-closes it along the Earth footprints. The result is one complete 360° northern
-half-toroid per L range; sector extraction can be applied later.
+closes it along the Earth footprints. By default, only the `+Y`, `+Z` quadrant is
+retained. Its two `Y=0` faces are watertight meridional caps lofted through genuinely
+traced intermediate L lines. Use `--no-field-line-wedge-quadrant` to restore a complete
+360° northern half-toroid.
 
 Each northern field line is integrated first and classified afterward. An azimuth is
 retained only when both its inner and outer traces reach northern Earth footprints,
@@ -175,6 +177,13 @@ uv run magnetosphere-stl --output output/field-line-wedges \
 
 The feature is not enabled by either defaults preset. It can also be added to a full
 run with `--field-line-wedges`; its default range is `8:10` at 10° spacing.
+Add `--field-line-wedge-grooves` to engrave tube-shaped channels along every traced
+inner- and outer-L boundary line used to loft each wedge. This does not create grooves
+along intermediate L traces inside the volume. The channels reuse `--tube-diameter-mm`,
+`--tube-sides`, and `--tube-path-step-mm`; standalone field-line tube export does not
+need to be enabled. Field lines are still integrated at `--field-line-step-re`, but the
+wedge skin is resampled at the coarser `--target-edge-re` surface resolution so flat
+areas between grooves do not inherit the integration mesh density.
 
 ## Layout
 
