@@ -12,6 +12,7 @@ from magnetosphere_stl.config import (
     PeelSettings,
     PolarFieldLineSettings,
     ProjectConfig,
+    RandomFieldLineSettings,
     SolarWindConditions,
 )
 from magnetosphere_stl.generate import GenerationResult, generate_all
@@ -29,6 +30,7 @@ __all__ = [
     "PeelSettings",
     "PolarFieldLineSettings",
     "ProjectConfig",
+    "RandomFieldLineSettings",
     "SolarWindConditions",
     "generate_all",
 ]

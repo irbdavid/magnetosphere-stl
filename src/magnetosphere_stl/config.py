@@ -188,6 +188,24 @@ class FieldLineTubeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RandomFieldLineSettings:
+    """Poisson-like seed sampling on the displayed GSM equatorial half-plane."""
+
+    enabled: bool = False
+    minimum_seed_spacing_re: float = 6.0
+    random_seed: int = 0
+    maximum_failed_attempts: int = 5_000
+
+    def __post_init__(self) -> None:
+        if self.minimum_seed_spacing_re <= 0:
+            raise ValueError("random field-line seed spacing must be positive")
+        if self.random_seed < 0:
+            raise ValueError("random field-line seed must not be negative")
+        if self.maximum_failed_attempts < 1:
+            raise ValueError("random field-line failed-attempt limit must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class FieldLineWedgeSettings:
     """Closed northern field-line volumes between configured L-shell pairs."""
 
@@ -417,6 +435,7 @@ class ProjectConfig:
     l_shells: LShellSettings = LShellSettings()
     kelvin_helmholtz: KelvinHelmholtzSettings = KelvinHelmholtzSettings()
     field_line_tubes: FieldLineTubeSettings = FieldLineTubeSettings()
+    random_field_lines: RandomFieldLineSettings = RandomFieldLineSettings()
     field_line_wedges: FieldLineWedgeSettings = FieldLineWedgeSettings()
     bow_shock: BowShockSettings = BowShockSettings()
     convection_streamlines: ConvectionStreamlineSettings = (

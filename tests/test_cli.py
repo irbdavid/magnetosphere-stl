@@ -201,3 +201,48 @@ def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None
         "field_line_wedge_l8_l10",
         "field_line_wedge_l10_l12",
     )
+
+
+def test_random_field_lines_suppress_other_nonpolar_field_tracing(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(
+        config,
+        output_dir,
+        *,
+        generators=None,
+        overwrite=False,
+    ):
+        captured.update(config=config, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert (
+        cli.main(
+            [
+                "--defaults",
+                "--random-field-lines",
+                "--random-field-line-spacing-re",
+                "6",
+                "--random-field-line-seed",
+                "23",
+            ]
+        )
+        == 0
+    )
+    config = captured["config"]
+    generators = captured["generators"]
+    assert config.random_field_lines.enabled
+    assert config.random_field_lines.minimum_seed_spacing_re == 6.0
+    assert config.random_field_lines.random_seed == 23
+    assert not config.field_line_tubes.enabled
+    assert not config.field_line_wedges.enabled
+    assert config.polar_field_lines.enabled
+    assert cli.COMPONENT_GENERATORS["random-field-lines"] in generators
+    assert cli.COMPONENT_GENERATORS["polar-field-lines"] in generators
+    assert cli.COMPONENT_GENERATORS["field-line-wedges"] not in generators
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in generators

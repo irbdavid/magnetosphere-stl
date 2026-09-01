@@ -16,6 +16,7 @@ from magnetosphere_stl.components import (
     LShellGenerator,
     MagnetopauseGenerator,
     PolarFieldLineGenerator,
+    RandomFieldLineGenerator,
 )
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
@@ -55,6 +56,7 @@ COMPONENT_GENERATORS: dict[str, ComponentGenerator] = {
     "bow-shock": BowShockGenerator(),
     "convection": ConvectionStreamlineGenerator(),
     "polar-field-lines": PolarFieldLineGenerator(),
+    "random-field-lines": RandomFieldLineGenerator(),
     "l-shells": LShellGenerator(),
 }
 DEFAULT_GENERATORS: tuple[ComponentGenerator, ...] = tuple(
@@ -116,6 +118,12 @@ def generate_all(
 
     destination = Path(output_dir).expanduser().resolve()
     selected = tuple(DEFAULT_GENERATORS if generators is None else generators)
+    if config.random_field_lines.enabled:
+        selected = tuple(
+            generator
+            for generator in selected
+            if not isinstance(generator, (FieldLineWedgeGenerator, LShellGenerator))
+        )
     names = tuple(
         name for generator in selected for name in generator.output_names(config)
     )

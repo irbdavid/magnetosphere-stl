@@ -7,6 +7,7 @@ from magnetosphere_stl.components.field_line_wedges import FieldLineWedgeGenerat
 from magnetosphere_stl.components.l_shells import LShellGenerator
 from magnetosphere_stl.components.magnetopause import MagnetopauseGenerator
 from magnetosphere_stl.components.polar_field_lines import PolarFieldLineGenerator
+from magnetosphere_stl.components.random_field_lines import RandomFieldLineGenerator
 
 __all__ = [
     "BowShockGenerator",
@@ -16,4 +17,5 @@ __all__ = [
     "LShellGenerator",
     "MagnetopauseGenerator",
     "PolarFieldLineGenerator",
+    "RandomFieldLineGenerator",
 ]

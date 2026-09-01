@@ -19,6 +19,7 @@ from magnetosphere_stl.config import (
     PeelSettings,
     PolarFieldLineSettings,
     ProjectConfig,
+    RandomFieldLineSettings,
     SolarWindConditions,
 )
 from magnetosphere_stl.generate import (
@@ -343,6 +344,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="apply each L-shell field-aligned peel to its tube companion",
     )
+    random_defaults = RandomFieldLineSettings()
+    parser.add_argument(
+        "--random-field-lines",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "trace randomly spaced seeds from the displayed Z=0, Y>=0 "
+            "magnetosphere half-plane"
+        ),
+    )
+    parser.add_argument(
+        "--random-field-line-spacing-re",
+        type=float,
+        default=random_defaults.minimum_seed_spacing_re,
+        help="minimum distance between accepted random seeds (default: 6 RE)",
+    )
+    parser.add_argument(
+        "--random-field-line-seed",
+        type=int,
+        default=random_defaults.random_seed,
+        help="random-number seed for reproducible sampling (default: 0)",
+    )
     parser.add_argument(
         "--kelvin-helmholtz",
         action=argparse.BooleanOptionalAction,
@@ -453,6 +476,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         defaults=False,
         selected="field-line-wedges" in selected,
     )
+    random_field_lines_enabled = _optional_feature_enabled(
+        args.random_field_lines,
+        defaults=False,
+        selected="random-field-lines" in selected,
+    )
+    if random_field_lines_enabled:
+        field_line_tubes_enabled = False
+        wedge_enabled = False
     kelvin_helmholtz_enabled = _optional_feature_enabled(
         args.kelvin_helmholtz,
         defaults=False,
@@ -569,6 +600,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 path_step_mm=args.tube_path_step_mm,
                 peel_with_l_shells=args.peel_field_line_tubes,
             ),
+            random_field_lines=RandomFieldLineSettings(
+                enabled=random_field_lines_enabled,
+                minimum_seed_spacing_re=args.random_field_line_spacing_re,
+                random_seed=args.random_field_line_seed,
+            ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
                 roll_stop_height_re=args.bow_shock_roll_stop_height_re,
@@ -666,6 +702,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 path_step_mm=args.tube_path_step_mm,
                 peel_with_l_shells=args.peel_field_line_tubes,
             ),
+            random_field_lines=RandomFieldLineSettings(
+                enabled=random_field_lines_enabled,
+                minimum_seed_spacing_re=args.random_field_line_spacing_re,
+                random_seed=args.random_field_line_seed,
+            ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
                 roll_stop_height_re=args.bow_shock_roll_stop_height_re,
@@ -721,9 +762,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir = args.output
     _print_run_configuration(config, output_dir, overwrite=args.overwrite)
     try:
-        if args.only:
+        if args.only or random_field_lines_enabled:
+            generator_names = list(
+                dict.fromkeys(args.only or tuple(COMPONENT_GENERATORS))
+            )
+            if random_field_lines_enabled:
+                generator_names = [
+                    name
+                    for name in generator_names
+                    if name not in {"field-line-wedges", "l-shells"}
+                ]
+                if "random-field-lines" not in generator_names:
+                    generator_names.append("random-field-lines")
             selected_generators = tuple(
-                COMPONENT_GENERATORS[name] for name in dict.fromkeys(args.only)
+                COMPONENT_GENERATORS[name] for name in generator_names
             )
             result = generate_all(
                 config,

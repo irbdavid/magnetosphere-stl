@@ -9,9 +9,11 @@ from magnetosphere_stl import (
     MeshResolution,
     PeelSettings,
     ProjectConfig,
+    RandomFieldLineSettings,
     SolarWindConditions,
     generate_all,
 )
+from magnetosphere_stl.components import LShellGenerator
 from magnetosphere_stl.generate import OutputCollisionError, _peel_angle_for_artifact
 
 
@@ -78,3 +80,24 @@ def test_l_shell_artifacts_bypass_export_stage_geometric_peeling() -> None:
 
     assert _peel_angle_for_artifact("l_shell_9_field_lines", inherited) == 0.0
     assert _peel_angle_for_artifact("l_shell_9_field_lines", unpeeled) == 0.0
+
+
+def test_generation_api_suppresses_l_shells_in_random_mode(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        LShellGenerator,
+        "generate",
+        lambda self, config: pytest.fail("L-shell tracing must be suppressed"),
+    )
+    config = ProjectConfig(
+        random_field_lines=RandomFieldLineSettings(enabled=True)
+    )
+
+    result = generate_all(
+        config,
+        tmp_path,
+        generators=(LShellGenerator(), SphereGenerator()),
+    )
+
+    assert [path.name for path in result.component_files] == ["test_component.stl"]

@@ -143,6 +143,36 @@ alongside a peeled shell instead.
 uv run magnetosphere-stl --defaults --peel --field-line-tubes --overwrite
 ```
 
+## Random equatorial field lines
+
+`--random-field-lines` enables a separate field-line display mode. It uses
+deterministic rejection sampling inside the finite Shue magnetopause on the exposed
+GSM equatorial half-plane (`Z=0`, `Y>=0`), excluding Earth. Accepted seeds are at
+least 6 RE apart by default; dart throwing continues until the remaining gaps reject
+5,000 consecutive candidates. Change the separation with
+`--random-field-line-spacing-re` and select another reproducible layout with
+`--random-field-line-seed`.
+
+Each seed is traced in both directions with the configured Tsyganenko model. The
+usable finite segments are converted to tubes using `--tube-diameter-mm`,
+`--tube-sides`, and `--tube-path-step-mm`, clipped to the printable magnetopause, and
+exported together as `random_field_lines.stl`.
+
+Random mode replaces the other magnetic-field construction modes for that run:
+L-shell surfaces, their regular field-line tubes, and field-line wedges are skipped.
+The polar fan remains available and remains enabled in a `--defaults` run. Other
+non-field-line components are unaffected.
+
+```bash
+uv run magnetosphere-stl --defaults --random-field-lines --overwrite
+
+# Generate only the random lines, with a sparser reproducible layout.
+uv run magnetosphere-stl --output output/random-field-lines \
+  --only random-field-lines \
+  --random-field-line-spacing-re 6 \
+  --random-field-line-seed 23
+```
+
 ## Northern field-line wedges
 
 The opt-in `field-line-wedges` component creates closed construction volumes between
@@ -390,7 +420,8 @@ uv run magnetosphere-stl --defaults --output output/polar-fan \
 ```
 
 `--only` can be repeated to select multiple groups from `earth`, `magnetopause`,
-`bow-shock`, `convection`, `polar-field-lines`, `field-line-wedges`, and `l-shells`.
+`bow-shock`, `convection`, `polar-field-lines`, `random-field-lines`,
+`field-line-wedges`, and `l-shells`.
 Selecting an optional tube or wedge component automatically enables it.
 
 ## AI-assisted development
