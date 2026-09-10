@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from math import sqrt
+from math import isfinite, sqrt
 
 MINIMUM_TUBE_DIAMETER_MM = 2.0
 DEFAULT_TUBE_DIAMETER_MM = 4.0
@@ -283,6 +283,7 @@ class ConvectionStreamlineSettings:
     )
     domain_level_count: int = 12
     grid_step_re: float = 0.10
+    minimum_spacing_re: float = 0.50
     tube_diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
     tube_sides: int = 8
     path_step_mm: float = 2.0
@@ -297,6 +298,8 @@ class ConvectionStreamlineSettings:
             raise ValueError("convection domain level count must be at least two")
         if self.grid_step_re <= 0:
             raise ValueError("convection grid step must be greater than zero")
+        if self.minimum_spacing_re <= 0:
+            raise ValueError("convection minimum spacing must be greater than zero")
         if self.tube_diameter_mm < MINIMUM_TUBE_DIAMETER_MM:
             raise ValueError("convection tube diameter must be at least 2 mm")
         if self.tube_sides < 6:
@@ -305,6 +308,24 @@ class ConvectionStreamlineSettings:
             raise ValueError("convection path step must be greater than zero")
         if self.corotation_potential_kv <= 0:
             raise ValueError("corotation potential magnitude must be greater than zero")
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentSheetSettings:
+    """Coarse B-dot-r zero surface for visual review, without thickness."""
+
+    enabled: bool = False
+    grid_step_re: float = 1.0
+    search_half_height_re: float = 15.0
+    search_step_re: float = 1.0
+
+    def __post_init__(self) -> None:
+        for name in ("grid_step_re", "search_half_height_re", "search_step_re"):
+            value = getattr(self, name)
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"current-sheet {name} must be finite and positive")
+        if self.search_step_re > self.search_half_height_re:
+            raise ValueError("current-sheet search step must not exceed half-height")
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,6 +462,7 @@ class ProjectConfig:
     convection_streamlines: ConvectionStreamlineSettings = (
         ConvectionStreamlineSettings()
     )
+    current_sheet: CurrentSheetSettings = CurrentSheetSettings()
     polar_field_lines: PolarFieldLineSettings = PolarFieldLineSettings()
     peel: PeelSettings = PeelSettings()
     epoch_utc: str = "2020-03-20T12:00:00+00:00"

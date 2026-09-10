@@ -140,6 +140,8 @@ def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) ->
                 str(tmp_path),
                 "--only",
                 "convection",
+                "--convection-minimum-spacing-re",
+                "0.75",
             ]
         )
         == 0
@@ -147,6 +149,7 @@ def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) ->
     config = captured["config"]
     generators = captured["generators"]
     assert config.convection_streamlines.enabled
+    assert config.convection_streamlines.minimum_spacing_re == 0.75
     assert not config.field_line_tubes.enabled
     assert not config.polar_field_lines.enabled
     assert not config.kelvin_helmholtz.enabled
@@ -155,6 +158,45 @@ def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) ->
     assert generators[0].output_names(config) == (
         "equatorial_convection_streamlines",
     )
+
+
+def test_only_current_sheet_selects_and_enables_generator(
+    monkeypatch, tmp_path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(
+        config,
+        output_dir,
+        *,
+        generators=None,
+        overwrite=False,
+    ):
+        captured.update(config=config, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert (
+        cli.main(
+            [
+                "--output",
+                str(tmp_path),
+                "--only",
+                "current-sheet",
+                "--current-sheet-grid-step-re",
+                "2",
+            ]
+        )
+        == 0
+    )
+    config = captured["config"]
+    generators = captured["generators"]
+    assert config.current_sheet.enabled
+    assert config.current_sheet.grid_step_re == 2.0
+    assert len(generators) == 1
+    assert generators[0].output_names(config) == ("current_sheet",)
 
 
 def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None:

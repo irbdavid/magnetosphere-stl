@@ -25,6 +25,7 @@ so their limitations do not disappear behind a plausible-looking STL.
 - Magnetic field / L-shell structure — closed Tsyganenko/IGRF surfaces implemented
 - Northern polar X–Z field-line fan — optional printable tubes implemented
 - Equatorial corotation/convection streamlines — optional printable tubes implemented
+- Magnetic-equator/current-sheet proxy — optional open review surface implemented
 - In the future...: radiation belts and selected current systems
 
 Coordinates in the physics layer are expressed in Earth radii (`R_E`) and use GSM
@@ -320,20 +321,20 @@ Peeled runs export both boundary representations. `magnetopause.stl` and
 scientific shells. The surface mesh is calculated only once for each boundary.
 
 When the convection streamlines or polar fan are enabled, their tube geometry is also
-subtracted from the matching planar face of `magnetopause.stl`: convection paths form
-grooves in the X–Y face and polar field lines form grooves in the X–Z face. Only the
-Y ≥ 0 half of the convection cutter and the Z ≥ 0 half of the polar cutter are used,
-preventing their opposite halves from leaving internal surfaces in the magnetopause.
-Their standalone tube STLs are still exported in full for assembly. This alignment is
-defined only for the default 90° magnetopause opening centered at 45°. Changing either
-peel value skips these grooves with a warning because the cut faces no longer coincide
-with the two tube planes.
+subtracted from the matching face of `magnetopause.stl`: convection paths form grooves
+in the curved magnetic-equator face and polar field lines form grooves in the X–Z
+face. Only the Y ≥ 0 half of the convection cutter and the Z ≥ 0 half of the polar
+cutter are used, preventing their opposite halves from leaving internal surfaces in
+the magnetopause. Their standalone tube STLs are still exported in full for assembly.
+This alignment is defined only for the default 90° magnetopause opening centered at
+45°. Changing either peel value skips these grooves with a warning.
 
 Closed meshes use a true Manifold boolean difference. For peeling, the magnetopause's
 thin scientific shell is replaced at the export boundary by the complete volume
-inside its outer surface. The bow shock is treated the same way. Subtracting each
-wedge therefore creates two full cut faces meeting along the X axis, rather than
-narrow walls spanning only the shell thickness. The result is
+inside its outer surface. The bow shock is treated the same way. The magnetopause's
+standard cut removes the positive-Y volume above the current sheet; other cuts use
+the configured wedge. Both create two full cut faces rather than narrow walls spanning
+only the shell thickness. The result is
 validated as one watertight volume, and does not depend on `minimum_wall_mm`.
 L-shells and their optional field-line tubes bypass this export-stage boolean because
 their field-aligned selection is performed directly from the cached traces.
@@ -354,6 +355,27 @@ When enabled, `magnetopause.stl` and, in peeled runs,
 `magnetopause_unperturbed.stl`. Parameters can be adjusted with the `--kh-*` CLI
 options and are recorded in `setup.json`.
 
+## Magnetic-equator proxy surface
+
+Add `--current-sheet` to export `current_sheet.stl`, an intentionally open surface
+for reviewing the modeled magnetic-equator deflection. On a coarse X/Y grid inside
+the Shue magnetopause, the generator searches vertically for the closest root of
+`B dot r = 0`, using the configured Tsyganenko external field plus IGRF internal
+field. Points inside Earth, outside the magnetopause, or without a root in the search
+range are omitted. The standard 90° magnetopause opening uses this surface for its
+equatorial cut face; other opening angles retain the planar wedge cut.
+
+The default grid spacing is `1 R_E`; the vertical search extends `15 R_E` above and
+below the GSM equator in `1 R_E` intervals before refining each crossing. Adjust
+these with `--current-sheet-grid-step-re`,
+`--current-sheet-search-half-height-re`, and `--current-sheet-search-step-re`.
+Generate only this review surface with:
+
+```bash
+uv run magnetosphere-stl --output output/current-sheet \
+  --only current-sheet
+```
+
 ## Equatorial convection streamlines
 
 Add `--convection-streamlines` to export
@@ -365,15 +387,22 @@ field is predominantly normal to the plane, contours of this total potential are
 geometric streamlines of the in-plane E-cross-B drift. Magnetic-field magnitude
 changes drift speed but not these un-oriented printable paths.
 
+The potential contours are calculated in X/Y and then draped over the same
+`B dot r = 0` height map used by the standard magnetopause cut. The resulting tubes
+therefore follow the curved surface, and their positive-Y halves form aligned grooves
+when subtracted from the peeled magnetopause.
+
 The contour grid covers the complete equatorial Shue magnetosphere: from the
 configured negative-X tail plane to the subsolar nose, and across the full dawn–dusk
 width of the magnetopause at that tail plane. Defaults seed potential levels at radii
 2, 3, 4, 5, 6, 8, 10, 15, 25, and 40 R_E and sweep them into 4 mm, eight-sided
-tubes. Twelve additional levels are drawn from quantiles across the full domain's
-potential distribution so the distant dawn and dusk sectors are represented rather
-than concentrating every path near midnight-derived potentials. Configure the sampling and
-fabrication geometry with `--convection-seed-radii-re`,
+tubes. The generator also draws three times the requested number of quantile levels
+as candidates across the full potential distribution. Seed-radius paths are considered
+first, then candidates coming within `0.5 R_E` of an accepted 3D centerline are
+discarded. This retains distant dawn and dusk coverage without crowding the grooves.
+Configure the sampling and fabrication geometry with `--convection-seed-radii-re`,
 `--convection-domain-level-count`, `--convection-grid-step-re`,
+`--convection-minimum-spacing-re`,
 `--convection-tube-diameter-mm`, `--convection-tube-sides`, and
 `--convection-path-step-mm`.
 

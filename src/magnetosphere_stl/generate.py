@@ -11,6 +11,7 @@ import trimesh
 from magnetosphere_stl.components import (
     BowShockGenerator,
     ConvectionStreamlineGenerator,
+    CurrentSheetGenerator,
     EarthGenerator,
     FieldLineWedgeGenerator,
     LShellGenerator,
@@ -51,6 +52,7 @@ class OutputCollisionError(FileExistsError):
 
 COMPONENT_GENERATORS: dict[str, ComponentGenerator] = {
     "earth": EarthGenerator(),
+    "current-sheet": CurrentSheetGenerator(),
     "field-line-wedges": FieldLineWedgeGenerator(),
     "magnetopause": MagnetopauseGenerator(),
     "bow-shock": BowShockGenerator(),
@@ -159,12 +161,16 @@ def generate_all(
                     f"Peeling {name}: {peel_angle:g} degrees centered at "
                     f"{peel_center:g} degrees around the GSM {peel_axis.upper()} axis"
                 )
-                mesh = subtract_azimuthal_wedge(
-                    mesh,
-                    peel_angle,
-                    peel_center,
-                    peel_axis,
-                )
+                peel_artifact = getattr(generator, "peel_artifact", None)
+                if peel_artifact is None:
+                    mesh = subtract_azimuthal_wedge(
+                        mesh,
+                        peel_angle,
+                        peel_center,
+                        peel_axis,
+                    )
+                else:
+                    mesh = peel_artifact(config, name, mesh)
             finish_artifact = getattr(generator, "finish_artifact", None)
             if finish_artifact is not None:
                 mesh = finish_artifact(config, name, mesh)

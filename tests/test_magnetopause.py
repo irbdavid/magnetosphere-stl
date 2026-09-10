@@ -7,6 +7,7 @@ import trimesh
 from magnetosphere_stl import (
     BowShockSettings,
     ConvectionStreamlineSettings,
+    CurrentSheetSettings,
     KelvinHelmholtzSettings,
     MeshResolution,
     PeelSettings,
@@ -15,11 +16,14 @@ from magnetosphere_stl import (
 )
 from magnetosphere_stl.components import BowShockGenerator
 from magnetosphere_stl.components import magnetopause as magnetopause_component
+from magnetosphere_stl.components.current_sheet import CurrentSheetHeightMap
 from magnetosphere_stl.components.magnetopause import (
     MagnetopauseGenerator,
     _apply_kelvin_helmholtz,
     _clip_cutter_to_positive_halfspace,
     _groove_peeled_magnetopause,
+    _peel_magnetopause,
+    _solid_above_current_sheet,
     _surface_mesh_re,
     magnetopause_roll_stop_height_re,
     shue_parameters,
@@ -92,6 +96,58 @@ def test_peeled_run_also_requests_unpeeled_magnetopause() -> None:
     )
 
 
+def _sloping_height_map() -> CurrentSheetHeightMap:
+    x_axis = np.asarray((-6.0, 0.0, 6.0))
+    y_axis = np.asarray((-6.0, 0.0, 2.0, 4.0, 6.0))
+    heights = np.tile(0.1 * x_axis, (len(y_axis), 1))
+    return CurrentSheetHeightMap(
+        x_axis,
+        y_axis,
+        heights,
+        np.ones_like(heights, dtype=bool),
+    )
+
+
+def test_current_sheet_peel_cutter_is_a_closed_positive_y_volume() -> None:
+    magnetopause = trimesh.creation.box(extents=(10.0, 10.0, 10.0))
+
+    cutter = _solid_above_current_sheet(
+        magnetopause,
+        _sloping_height_map(),
+        earth_radius_mm=1.0,
+    )
+
+    assert cutter.is_volume
+    assert cutter.bounds[0, 1] == pytest.approx(0.0)
+    assert cutter.bounds[1, 2] > magnetopause.bounds[1, 2]
+
+
+def test_standard_magnetopause_peel_uses_current_sheet(monkeypatch) -> None:
+    config = ProjectConfig(
+        current_sheet=CurrentSheetSettings(grid_step_re=6.0),
+        peel=PeelSettings(enabled=True),
+        earth_radius_mm=1.0,
+    )
+    magnetopause = trimesh.creation.box(extents=(10.0, 10.0, 10.0))
+    monkeypatch.setattr(
+        magnetopause_component,
+        "current_sheet_height_map",
+        lambda config: _sloping_height_map(),
+    )
+
+    peeled = _peel_magnetopause(magnetopause, config)
+    points = peeled.vertices
+    curved_face = points[
+        (points[:, 1] > 0.0)
+        & (points[:, 1] < 5.0)
+        & np.isclose(points[:, 2], 0.1 * points[:, 0], atol=1e-8)
+    ]
+
+    assert peeled.is_volume
+    assert peeled.volume == pytest.approx(750.0)
+    assert len(curved_face) > 0
+
+
 def test_planar_tube_sets_are_cut_into_peeled_magnetopause(monkeypatch) -> None:
     config = ProjectConfig(
         peel=PeelSettings(enabled=True),
@@ -112,9 +168,9 @@ def test_planar_tube_sets_are_cut_into_peeled_magnetopause(monkeypatch) -> None:
     clipped_axes = []
     original_clip = _clip_cutter_to_positive_halfspace
 
-    def record_clip(mesh, axis):
+    def record_clip(mesh, axis, minimum=0.0):
         clipped_axes.append(axis)
-        return original_clip(mesh, axis)
+        return original_clip(mesh, axis, minimum)
 
     monkeypatch.setattr(
         magnetopause_component,
@@ -140,6 +196,21 @@ def test_tube_cutter_positive_halfspace_is_closed(axis) -> None:
     assert clipped.is_volume
     assert clipped.bounds[0, axis] == pytest.approx(0.0, abs=1e-9)
     assert clipped.volume == pytest.approx(cutter.volume / 2.0)
+
+
+def test_overlapping_tube_cutters_are_unioned_after_clipping() -> None:
+    first = trimesh.creation.box(extents=(4.0, 4.0, 2.0))
+    second = first.copy()
+    second.apply_translation((2.0, 0.0, 0.0))
+
+    clipped = _clip_cutter_to_positive_halfspace(
+        trimesh.util.concatenate((first, second)),
+        axis=1,
+    )
+
+    assert clipped.is_volume
+    assert clipped.body_count == 1
+    assert clipped.volume == pytest.approx(24.0)
 
 
 @pytest.mark.parametrize(

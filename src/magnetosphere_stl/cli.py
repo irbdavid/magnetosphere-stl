@@ -10,6 +10,7 @@ from magnetosphere_stl.components.bow_shock import bow_shock_clip_radius_re
 from magnetosphere_stl.config import (
     BowShockSettings,
     ConvectionStreamlineSettings,
+    CurrentSheetSettings,
     FieldLineTubeSettings,
     FieldLineWedgeSettings,
     FieldModel,
@@ -200,6 +201,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=convection_defaults.grid_step_re,
     )
     parser.add_argument(
+        "--convection-minimum-spacing-re",
+        type=float,
+        default=convection_defaults.minimum_spacing_re,
+    )
+    parser.add_argument(
         "--convection-domain-level-count",
         type=int,
         default=convection_defaults.domain_level_count,
@@ -223,6 +229,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--corotation-potential-kv",
         type=float,
         default=convection_defaults.corotation_potential_kv,
+    )
+    sheet_defaults = CurrentSheetSettings()
+    parser.add_argument(
+        "--current-sheet",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export a coarse B-dot-r zero surface for review",
+    )
+    parser.add_argument(
+        "--current-sheet-grid-step-re",
+        type=float,
+        default=sheet_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--current-sheet-search-half-height-re",
+        type=float,
+        default=sheet_defaults.search_half_height_re,
+    )
+    parser.add_argument(
+        "--current-sheet-search-step-re",
+        type=float,
+        default=sheet_defaults.search_step_re,
     )
     polar_defaults = PolarFieldLineSettings()
     parser.add_argument(
@@ -617,6 +645,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_radii_re=args.convection_seed_radii_re,
                 domain_level_count=args.convection_domain_level_count,
                 grid_step_re=args.convection_grid_step_re,
+                minimum_spacing_re=args.convection_minimum_spacing_re,
                 tube_diameter_mm=args.convection_tube_diameter_mm,
                 tube_sides=args.convection_tube_sides,
                 path_step_mm=args.convection_path_step_mm,
@@ -719,6 +748,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_radii_re=args.convection_seed_radii_re,
                 domain_level_count=args.convection_domain_level_count,
                 grid_step_re=args.convection_grid_step_re,
+                minimum_spacing_re=args.convection_minimum_spacing_re,
                 tube_diameter_mm=args.convection_tube_diameter_mm,
                 tube_sides=args.convection_tube_sides,
                 path_step_mm=args.convection_path_step_mm,
@@ -760,6 +790,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             minimum_wall_mm=args.minimum_wall_mm,
         )
         output_dir = args.output
+    config = replace(
+        config,
+        current_sheet=CurrentSheetSettings(
+            enabled=_optional_feature_enabled(
+                args.current_sheet,
+                defaults=False,
+                selected="current-sheet" in selected,
+            ),
+            grid_step_re=args.current_sheet_grid_step_re,
+            search_half_height_re=args.current_sheet_search_half_height_re,
+            search_step_re=args.current_sheet_search_step_re,
+        ),
+    )
     _print_run_configuration(config, output_dir, overwrite=args.overwrite)
     try:
         if args.only or random_field_lines_enabled:
