@@ -34,6 +34,7 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert config.random_field_lines.tube_diameter_mm == 5.0
     assert config.polar_field_lines.angular_spacing_deg == 2.0
     assert config.bow_shock.roll_stop_height_re == 6.0
+    assert config.bow_shock.engraving_height_mm == 10.0
     assert not config.kelvin_helmholtz.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default")

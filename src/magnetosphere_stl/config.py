@@ -267,7 +267,7 @@ class BowShockSettings:
     maximum_cylindrical_radius_re: float | None = None
     roll_stop_height_re: float = 6.0
     engraving_enabled: bool = True
-    engraving_height_mm: float = 20.0
+    engraving_height_mm: float = 10.0
     engraving_depth_mm: float = 0.5
 
     def __post_init__(self) -> None:

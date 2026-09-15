@@ -73,8 +73,8 @@ Use `--bow-shock-max-radius-re` only to override that derived radius. The compon
 also trimmed `6 R_E` above its lowest −Z extent, creating a larger horizontal
 roll-stop surface; change or disable it with `--bow-shock-roll-stop-height-re`. The
 peeled roll-stop is engraved along GSM X at `Y=0` by default with
-`Earth's Magnetosphere / irf.se`, oriented to read from beneath the print; disable the label with
-`--no-bow-shock-engraving`, or adjust it with
+the 10 mm-tall label `Earth's Magnetosphere / irf.se`, oriented to read from beneath
+the print; disable the label with `--no-bow-shock-engraving`, or adjust it with
 `--bow-shock-engraving-height-mm` and `--bow-shock-engraving-depth-mm`. The component
 is exported as `bow_shock.stl`.
 

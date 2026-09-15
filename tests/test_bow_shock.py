@@ -194,6 +194,21 @@ def test_bow_shock_roll_stop_engraving_is_backed_and_recessed() -> None:
     )
 
 
+def test_default_engraving_fits_default_hollow_bow_shock() -> None:
+    config = ProjectConfig(peel=PeelSettings(enabled=True))
+    generator = BowShockGenerator()
+    shell = generator.generate(config)["bow_shock"]
+    magnetosheath = generator.prepare_for_peeling(config, "bow_shock", shell)
+    peeled = generator.peel_artifact(config, "bow_shock", magnetosheath)
+
+    engraved = generator.finish_artifact(config, "bow_shock", peeled)
+
+    assert engraved.is_volume
+    assert engraved.body_count == 1
+    assert engraved.volume < peeled.volume
+    assert len(engraved.faces) > len(peeled.faces)
+
+
 def test_oversize_engraving_warns_and_leaves_bow_shock_plain(monkeypatch) -> None:
     config = _coarse_config(peel=PeelSettings(enabled=True))
     mesh = trimesh.creation.box()
