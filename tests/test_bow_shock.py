@@ -20,7 +20,9 @@ from magnetosphere_stl.components.bow_shock import (
     _texture_fade_re,
     bow_shock_clip_radius_re,
     solid_bow_shock_envelope,
+    solid_magnetosheath_envelope,
 )
+from magnetosphere_stl.components.magnetopause import solid_magnetopause_envelope
 from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
 from magnetosphere_stl.models.jelinek import (
     JELINEK_R0_RE,
@@ -209,21 +211,60 @@ def test_oversize_engraving_warns_and_leaves_bow_shock_plain(monkeypatch) -> Non
     assert result is mesh
 
 
-def test_peeled_bow_shock_is_a_solid_cutaway() -> None:
+@pytest.mark.parametrize(
+    "solar_wind",
+    (
+        SolarWindConditions(),
+        SolarWindConditions(
+            dynamic_pressure_npa=50.0,
+            dst_nt=-10.0,
+            imf_bz_nt=-20.0,
+            kp=2.0,
+        ),
+    ),
+)
+def test_solid_magnetosheath_removes_complete_magnetopause(
+    solar_wind, tmp_path
+) -> None:
+    config = _coarse_config(solar_wind=solar_wind)
+    bow_shock = solid_bow_shock_envelope(config)
+    magnetopause = solid_magnetopause_envelope(config)
+    magnetosheath = solid_magnetosheath_envelope(config)
+
+    assert magnetosheath.is_volume
+    assert magnetosheath.body_count == 1
+    assert magnetosheath.volume < bow_shock.volume
+    assert magnetosheath.volume == pytest.approx(
+        bow_shock.volume - magnetopause.volume,
+        rel=1e-5,
+    )
+
+    path = tmp_path / "magnetosheath.stl"
+    magnetosheath.export(path)
+    round_trip = trimesh.load_mesh(path, process=True)
+    assert round_trip.is_volume
+    assert round_trip.body_count == 1
+
+
+def test_peeled_bow_shock_is_a_hollow_magnetosheath_cutaway() -> None:
     config = _coarse_config(
         solar_wind=SolarWindConditions(dynamic_pressure_npa=3.0)
     )
     shell = BowShockGenerator().generate(config)["bow_shock"]
-    solid = solid_bow_shock_envelope(config)
-    peeled = subtract_azimuthal_wedge(
-        solid,
-        config.peel.bow_shock_opening_deg,
-        config.peel.bow_shock_center_clock_deg,
-        axis="x",
+    magnetosheath = BowShockGenerator().prepare_for_peeling(
+        config,
+        "bow_shock",
+        shell,
+    )
+    peeled = BowShockGenerator().peel_artifact(
+        config,
+        "bow_shock",
+        magnetosheath,
     )
 
     assert peeled.is_volume
     assert peeled.body_count == 1
+    assert peeled.volume < magnetosheath.volume
     assert peeled.volume > shell.volume * 5.0
 
 
@@ -295,7 +336,7 @@ def test_magnetosheath_texture_spans_nose_to_tail() -> None:
 def test_magnetosheath_cut_face_selection_reaches_downstream_edge() -> None:
     config = _coarse_config(peel=PeelSettings(enabled=True))
     planar = subtract_azimuthal_wedge(
-        solid_bow_shock_envelope(config),
+        solid_magnetosheath_envelope(config),
         config.peel.bow_shock_opening_deg,
         config.peel.bow_shock_center_clock_deg,
         axis="x",
@@ -348,7 +389,7 @@ def test_magnetosheath_texture_keeps_bow_shock_watertight(tmp_path) -> None:
         ),
     )
     planar = subtract_azimuthal_wedge(
-        solid_bow_shock_envelope(config),
+        solid_magnetosheath_envelope(config),
         config.peel.bow_shock_opening_deg,
         config.peel.bow_shock_center_clock_deg,
         axis="x",

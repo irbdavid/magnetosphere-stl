@@ -10,6 +10,7 @@ import trimesh
 from scipy.ndimage import map_coordinates
 from skimage.io import imread
 
+from magnetosphere_stl.components.magnetopause import solid_magnetopause_envelope
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.axisymmetric import connect_rings, segments_for_circle
 from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
@@ -238,6 +239,28 @@ def solid_bow_shock_envelope(config: ProjectConfig) -> trimesh.Trimesh:
     return _apply_roll_stop(_clip_to_tail_cylinder(mesh, config), config)
 
 
+def solid_magnetosheath_envelope(config: ProjectConfig) -> trimesh.Trimesh:
+    """Build the bow-shock volume with the complete magnetopause removed."""
+
+    magnetosheath = trimesh.boolean.difference(
+        [
+            solid_bow_shock_envelope(config),
+            solid_magnetopause_envelope(config),
+        ],
+        engine="manifold",
+        check_volume=True,
+    )
+    magnetosheath.process(validate=True)
+    trimesh.repair.fix_normals(magnetosheath)
+    if magnetosheath.is_empty:
+        raise RuntimeError("magnetopause removed the entire bow-shock volume")
+    if not magnetosheath.is_volume or magnetosheath.body_count != 1:
+        raise RuntimeError(
+            "magnetopause subtraction did not produce one closed magnetosheath volume"
+        )
+    return magnetosheath
+
+
 def _smoothstep(value: np.ndarray) -> np.ndarray:
     clipped = np.clip(value, 0.0, 1.0)
     return clipped * clipped * (3.0 - 2.0 * clipped)
@@ -448,7 +471,7 @@ class BowShockGenerator:
     ) -> trimesh.Trimesh:
         if name != self.name:
             raise ValueError(f"unexpected bow-shock artifact: {name}")
-        return solid_bow_shock_envelope(config)
+        return solid_magnetosheath_envelope(config)
 
     def peel_artifact(
         self, config: ProjectConfig, name: str, mesh: trimesh.Trimesh

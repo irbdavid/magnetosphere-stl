@@ -323,7 +323,10 @@ The magnetopause Y–Z clock angle can be changed with
 Peeled runs export both boundary representations. `magnetopause.stl` and
 `bow_shock.stl` contain the solid peeled cutaways, while
 `magnetopause_unpeeled.stl` and `bow_shock_unpeeled.stl` contain the complete thin
-scientific shells. The surface mesh is calculated only once for each boundary.
+scientific shells. Before the bow-shock opening is cut, the complete volume enclosed
+by the unpeeled magnetopause is subtracted from it. The resulting `bow_shock.stl`
+therefore represents only the hollow magnetosheath between the two boundaries. The
+surface mesh is calculated only once for each boundary.
 
 When the convection streamlines or polar fan are enabled, their tube geometry is also
 subtracted from the matching face of `magnetopause.stl`: convection paths form grooves
