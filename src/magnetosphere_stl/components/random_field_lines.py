@@ -76,7 +76,7 @@ def _ordered_trace_points(halves) -> np.ndarray | None:
 def _field_line_tubes(
     traces: list[np.ndarray], config: ProjectConfig
 ) -> trimesh.Trimesh:
-    settings = config.field_line_tubes
+    settings = config.random_field_lines
     tubes = []
     for trace in traces:
         sampled = resample_polyline(
@@ -86,8 +86,8 @@ def _field_line_tubes(
         tubes.append(
             tube_mesh(
                 sampled,
-                settings.diameter_mm / 2.0,
-                sides=settings.cross_section_sides,
+                settings.tube_diameter_mm / 2.0,
+                sides=settings.tube_sides,
             )
         )
     if not tubes:

@@ -6,6 +6,7 @@ import trimesh
 
 from magnetosphere_stl import (
     FieldLineTubeSettings,
+    LShellSettings,
     MeshResolution,
     PeelSettings,
     ProjectConfig,
@@ -82,15 +83,18 @@ def test_l_shell_artifacts_bypass_export_stage_geometric_peeling() -> None:
     assert _peel_angle_for_artifact("l_shell_9_field_lines", unpeeled) == 0.0
 
 
-def test_generation_api_suppresses_l_shells_in_random_mode(
+def test_generation_api_keeps_l_shells_in_random_mode(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
         LShellGenerator,
         "generate",
-        lambda self, config: pytest.fail("L-shell tracing must be suppressed"),
+        lambda self, config: {
+            "l_shell_2": trimesh.creation.icosphere(radius=1.0)
+        },
     )
     config = ProjectConfig(
+        l_shells=LShellSettings(values=(2.0,)),
         random_field_lines=RandomFieldLineSettings(enabled=True)
     )
 
@@ -100,4 +104,7 @@ def test_generation_api_suppresses_l_shells_in_random_mode(
         generators=(LShellGenerator(), SphereGenerator()),
     )
 
-    assert [path.name for path in result.component_files] == ["test_component.stl"]
+    assert [path.name for path in result.component_files] == [
+        "l_shell_2.stl",
+        "test_component.stl",
+    ]

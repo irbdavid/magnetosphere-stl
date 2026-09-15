@@ -24,8 +24,14 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     config = captured["config"]
     assert config.field_line_tubes.enabled
     assert config.field_line_tubes.grooves_enabled
+    assert config.field_line_tubes.groove_minimum_l == 6.0
+    assert config.field_line_tubes.diameter_mm == 2.0
     assert config.convection_streamlines.enabled
+    assert config.convection_streamlines.tube_diameter_mm == 2.0
     assert config.polar_field_lines.enabled
+    assert config.polar_field_lines.tube_diameter_mm == 2.0
+    assert config.random_field_lines.enabled
+    assert config.random_field_lines.tube_diameter_mm == 5.0
     assert config.polar_field_lines.angular_spacing_deg == 2.0
     assert config.bow_shock.roll_stop_height_re == 6.0
     assert not config.kelvin_helmholtz.enabled
@@ -53,6 +59,7 @@ def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) ->
     assert config.field_line_tubes.enabled
     assert config.convection_streamlines.enabled
     assert config.polar_field_lines.enabled
+    assert config.random_field_lines.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default-high")
 
@@ -85,6 +92,7 @@ def test_defaults_can_disable_optional_features(monkeypatch) -> None:
             "--no-field-line-tubes",
             "--no-convection-streamlines",
             "--no-polar-field-lines",
+            "--no-random-field-lines",
             "--no-bow-shock-engraving",
         ]
     )
@@ -93,6 +101,7 @@ def test_defaults_can_disable_optional_features(monkeypatch) -> None:
     assert not config.field_line_tubes.enabled
     assert not config.convection_streamlines.enabled
     assert not config.polar_field_lines.enabled
+    assert not config.random_field_lines.enabled
     assert not config.kelvin_helmholtz.enabled
     assert not config.peel.enabled
     assert not config.bow_shock.engraving_enabled
@@ -285,7 +294,7 @@ def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None
     )
 
 
-def test_random_field_lines_suppress_other_nonpolar_field_tracing(
+def test_random_field_lines_coexist_with_other_field_tracing(
     monkeypatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -312,6 +321,8 @@ def test_random_field_lines_suppress_other_nonpolar_field_tracing(
                 "6",
                 "--random-field-line-seed",
                 "23",
+                "--random-field-line-tube-diameter-mm",
+                "5.5",
             ]
         )
         == 0
@@ -321,10 +332,8 @@ def test_random_field_lines_suppress_other_nonpolar_field_tracing(
     assert config.random_field_lines.enabled
     assert config.random_field_lines.minimum_seed_spacing_re == 6.0
     assert config.random_field_lines.random_seed == 23
-    assert not config.field_line_tubes.enabled
+    assert config.random_field_lines.tube_diameter_mm == 5.5
+    assert config.field_line_tubes.enabled
     assert not config.field_line_wedges.enabled
     assert config.polar_field_lines.enabled
-    assert cli.COMPONENT_GENERATORS["random-field-lines"] in generators
-    assert cli.COMPONENT_GENERATORS["polar-field-lines"] in generators
-    assert cli.COMPONENT_GENERATORS["field-line-wedges"] not in generators
-    assert cli.COMPONENT_GENERATORS["l-shells"] not in generators
+    assert generators is None

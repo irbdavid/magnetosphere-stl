@@ -152,7 +152,7 @@ uv run magnetosphere-stl --defaults --peel --field-line-tubes --overwrite
 
 ## Random equatorial field lines
 
-`--random-field-lines` enables a separate field-line display mode. It uses
+Random field lines are enabled by the default presets and use
 deterministic rejection sampling inside the finite Shue magnetopause on the exposed
 GSM equatorial half-plane (`Z=0`, `Y>=0`), excluding Earth. Accepted seeds are at
 least 6 RE apart by default; dart throwing continues until the remaining gaps reject
@@ -161,17 +161,16 @@ least 6 RE apart by default; dart throwing continues until the remaining gaps re
 `--random-field-line-seed`.
 
 Each seed is traced in both directions with the configured Tsyganenko model. The
-usable finite segments are converted to tubes using `--tube-diameter-mm`,
-`--tube-sides`, and `--tube-path-step-mm`, clipped to the printable magnetopause, and
-exported together as `random_field_lines.stl`.
+usable finite segments are converted to printable 5 mm tubes, clipped to the
+magnetopause, and exported together as `random_field_lines.stl`. Configure their
+fabrication geometry independently with `--random-field-line-tube-diameter-mm`,
+`--random-field-line-tube-sides`, and `--random-field-line-path-step-mm`.
 
-Random mode replaces the other magnetic-field construction modes for that run:
-L-shell surfaces, their regular field-line tubes, and field-line wedges are skipped.
-The polar fan remains available and remains enabled in a `--defaults` run. Other
-non-field-line components are unaffected.
+Random lines coexist with L-shell surfaces and their thinner groove-generating tubes.
+Disable them with `--no-random-field-lines`.
 
 ```bash
-uv run magnetosphere-stl --defaults --random-field-lines --overwrite
+uv run magnetosphere-stl --defaults --overwrite
 
 # Generate only the random lines, with a sparser reproducible layout.
 uv run magnetosphere-stl --output output/random-field-lines \

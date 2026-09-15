@@ -437,6 +437,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="random-number seed for reproducible sampling (default: 0)",
     )
     parser.add_argument(
+        "--random-field-line-tube-diameter-mm",
+        type=float,
+        default=random_defaults.tube_diameter_mm,
+    )
+    parser.add_argument(
+        "--random-field-line-tube-sides",
+        type=int,
+        default=random_defaults.tube_sides,
+    )
+    parser.add_argument(
+        "--random-field-line-path-step-mm",
+        type=float,
+        default=random_defaults.path_step_mm,
+    )
+    parser.add_argument(
         "--kelvin-helmholtz",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -548,12 +563,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     random_field_lines_enabled = _optional_feature_enabled(
         args.random_field_lines,
-        defaults=False,
+        defaults=using_defaults,
         selected="random-field-lines" in selected,
     )
-    if random_field_lines_enabled:
-        field_line_tubes_enabled = False
-        wedge_enabled = False
     kelvin_helmholtz_enabled = _optional_feature_enabled(
         args.kelvin_helmholtz,
         defaults=False,
@@ -675,6 +687,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 enabled=random_field_lines_enabled,
                 minimum_seed_spacing_re=args.random_field_line_spacing_re,
                 random_seed=args.random_field_line_seed,
+                tube_diameter_mm=args.random_field_line_tube_diameter_mm,
+                tube_sides=args.random_field_line_tube_sides,
+                path_step_mm=args.random_field_line_path_step_mm,
             ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
@@ -779,6 +794,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 enabled=random_field_lines_enabled,
                 minimum_seed_spacing_re=args.random_field_line_spacing_re,
                 random_seed=args.random_field_line_seed,
+                tube_diameter_mm=args.random_field_line_tube_diameter_mm,
+                tube_sides=args.random_field_line_tube_sides,
+                path_step_mm=args.random_field_line_path_step_mm,
             ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
@@ -860,16 +878,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     _print_run_configuration(config, output_dir, overwrite=args.overwrite)
     try:
-        if args.only or random_field_lines_enabled:
-            generator_names = list(
-                dict.fromkeys(args.only or tuple(COMPONENT_GENERATORS))
-            )
+        if args.only:
+            generator_names = list(dict.fromkeys(args.only))
             if random_field_lines_enabled:
-                generator_names = [
-                    name
-                    for name in generator_names
-                    if name not in {"field-line-wedges", "l-shells"}
-                ]
                 if "random-field-lines" not in generator_names:
                     generator_names.append("random-field-lines")
             selected_generators = tuple(

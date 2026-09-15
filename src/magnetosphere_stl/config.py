@@ -206,6 +206,9 @@ class RandomFieldLineSettings:
     minimum_seed_spacing_re: float = 6.0
     random_seed: int = 0
     maximum_failed_attempts: int = 5_000
+    tube_diameter_mm: float = DEFAULT_RANDOM_FIELD_LINE_DIAMETER_MM
+    tube_sides: int = 8
+    path_step_mm: float = 2.0
 
     def __post_init__(self) -> None:
         if self.minimum_seed_spacing_re <= 0:
@@ -214,6 +217,12 @@ class RandomFieldLineSettings:
             raise ValueError("random field-line seed must not be negative")
         if self.maximum_failed_attempts < 1:
             raise ValueError("random field-line failed-attempt limit must be positive")
+        if self.tube_diameter_mm < MINIMUM_TUBE_DIAMETER_MM:
+            raise ValueError("random field-line tube diameter must be at least 2 mm")
+        if self.tube_sides < 6:
+            raise ValueError("random field-line tubes require at least six sides")
+        if self.path_step_mm <= 0:
+            raise ValueError("random field-line path step must be greater than zero")
 
 
 @dataclass(frozen=True, slots=True)

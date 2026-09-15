@@ -30,7 +30,9 @@ def _sampling_config(**settings) -> ProjectConfig:
 
 
 def test_default_random_seed_spacing_is_six_re() -> None:
-    assert RandomFieldLineSettings().minimum_seed_spacing_re == 6.0
+    settings = RandomFieldLineSettings()
+    assert settings.minimum_seed_spacing_re == 6.0
+    assert settings.tube_diameter_mm == 5.0
 
 
 def test_random_seeds_are_reproducible_spaced_and_inside_display_half_plane() -> None:
@@ -103,6 +105,9 @@ def test_random_generator_exports_clipped_closed_tubes(monkeypatch) -> None:
         {"minimum_seed_spacing_re": 0.0},
         {"random_seed": -1},
         {"maximum_failed_attempts": 0},
+        {"tube_diameter_mm": 1.99},
+        {"tube_sides": 5},
+        {"path_step_mm": 0.0},
     ],
 )
 def test_invalid_random_field_line_settings_are_rejected(settings) -> None:
