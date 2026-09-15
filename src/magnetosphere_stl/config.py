@@ -126,6 +126,7 @@ class FieldLineTubeSettings:
 
     enabled: bool = False
     grooves_enabled: bool = True
+    groove_minimum_l: float = 6.0
     azimuth_spacing_deg: float = 10.0
     dense_spacing_start_l: float = 9.5
     dense_spacing_end_l: float = 60.0
@@ -136,6 +137,8 @@ class FieldLineTubeSettings:
     peel_with_l_shells: bool = True
 
     def __post_init__(self) -> None:
+        if not isfinite(self.groove_minimum_l) or self.groove_minimum_l <= 0:
+            raise ValueError("minimum grooved L-shell must be finite and positive")
         if not 0 < self.azimuth_spacing_deg <= 360:
             raise ValueError("tube azimuth spacing must be in (0, 360] degrees")
         line_count = 360.0 / self.azimuth_spacing_deg
@@ -185,6 +188,11 @@ class FieldLineTubeSettings:
         """Return the equal spacing resulting from the integer line count."""
 
         return 360.0 / self.line_count_for_l(l_value)
+
+    def grooves_shell(self, l_value: float) -> bool:
+        """Return whether field-line channels should be cut into this L-shell."""
+
+        return self.grooves_enabled and l_value >= self.groove_minimum_l
 
 
 @dataclass(frozen=True, slots=True)

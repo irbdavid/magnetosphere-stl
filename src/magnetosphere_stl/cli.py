@@ -370,6 +370,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tube_defaults = FieldLineTubeSettings()
     parser.add_argument(
+        "--tube-groove-minimum-l",
+        type=float,
+        default=tube_defaults.groove_minimum_l,
+        help="smallest L-shell that receives field-line grooves (default: 6)",
+    )
+    parser.add_argument(
         "--tube-azimuth-spacing-deg",
         type=float,
         default=tube_defaults.azimuth_spacing_deg,
@@ -651,6 +657,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
                 grooves_enabled=args.field_line_grooves,
+                groove_minimum_l=args.tube_groove_minimum_l,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,
@@ -754,6 +761,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
                 grooves_enabled=args.field_line_grooves,
+                groove_minimum_l=args.tube_groove_minimum_l,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,

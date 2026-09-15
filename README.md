@@ -119,8 +119,9 @@ Add `--field-line-tubes` to export a companion STL for every configured L-shell,
 example `l_shell_9_field_lines.stl`. Each companion contains a sparse set of capped
 Tsyganenko/IGRF field-line tubes centered on the corresponding shell surface. When
 the two objects are stacked, the exposed half of each tube forms an identifiable
-ridge. By default, the same tubes are subtracted from their corresponding L-shell,
-leaving matching half-round grooves in the shell surface. Use
+ridge. Starting at L=6, the same tubes are subtracted from their corresponding
+L-shell, leaving matching half-round grooves in the shell surface. L-shells inside
+L=6 remain smooth by default. Change the cutoff with `--tube-groove-minimum-l`. Use
 `--no-field-line-grooves` to retain the former smooth L-shell surfaces. Existing shell
 traces are reused whenever their azimuth matches a requested tube, avoiding duplicate
 field calculations in the normal case.

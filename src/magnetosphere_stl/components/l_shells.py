@@ -487,12 +487,31 @@ def _field_aligned_peel_records(
 
 
 def _field_line_tube_mesh(
-    records: list[_TraceRecord], config: ProjectConfig
+    records: list[_TraceRecord],
+    config: ProjectConfig,
+    *,
+    extend_ends_mm: float = 0.0,
 ) -> trimesh.Trimesh:
     settings = config.field_line_tubes
     meshes: list[trimesh.Trimesh] = []
     for record in records:
         points_mm = record.points_re * config.earth_radius_mm
+        if extend_ends_mm > 0.0:
+            start_direction = points_mm[0] - points_mm[1]
+            end_direction = points_mm[-1] - points_mm[-2]
+            points_mm = np.vstack(
+                (
+                    points_mm[0]
+                    + extend_ends_mm
+                    * start_direction
+                    / np.linalg.norm(start_direction),
+                    points_mm,
+                    points_mm[-1]
+                    + extend_ends_mm
+                    * end_direction
+                    / np.linalg.norm(end_direction),
+                )
+            )
         sampled = resample_polyline(points_mm, settings.path_step_mm)
         meshes.append(
             tube_mesh(
@@ -517,8 +536,11 @@ def _subtract_field_line_grooves(
 ) -> trimesh.Trimesh:
     """Cut tube-shaped channels into a temporarily closed L-shell volume."""
 
+    cutter_bodies = tuple(tubes.split(only_watertight=True))
+    if not cutter_bodies:
+        raise RuntimeError("field-line groove cutters contain no closed volumes")
     grooved = trimesh.boolean.difference(
-        [shell, tubes], engine="manifold", check_volume=True
+        [shell, *cutter_bodies], engine="manifold", check_volume=True
     )
     if grooved.is_empty:
         raise RuntimeError("field-line grooves removed an entire L-shell component")
@@ -618,12 +640,18 @@ class LShellGenerator:
                     record = trace_cache[key]
                     if record is not None:
                         tube_records.append(record)
-                groove_cutters = _field_line_tube_mesh(tube_records, config)
+                tube_mesh = _field_line_tube_mesh(tube_records, config)
                 clipped_tubes = _clip_to_magnetopause(
-                    groove_cutters,
+                    tube_mesh,
                     magnetopause,
                     config,
                 )
+                if tube_settings.grooves_shell(l_value):
+                    groove_cutters = _field_line_tube_mesh(
+                        tube_records,
+                        config,
+                        extend_ends_mm=tube_settings.diameter_mm,
+                    )
 
             meshes: list[trimesh.Trimesh] = []
             for sector, wrap in sectors:
@@ -641,7 +669,7 @@ class LShellGenerator:
                 )
                 if (
                     groove_cutters is not None
-                    and config.field_line_tubes.grooves_enabled
+                    and config.field_line_tubes.grooves_shell(l_value)
                 ):
                     shell = _subtract_field_line_grooves(
                         shell,

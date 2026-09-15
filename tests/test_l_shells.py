@@ -58,11 +58,10 @@ def test_reduced_l_shell_set_is_watertight() -> None:
 
     assert mesh.is_watertight
     assert mesh.is_volume
-    # The base L-shell is genus 1. Each closed groove adds one handle, reducing
-    # the Euler characteristic by two.
-    assert mesh.euler_number == -2 * tubes.body_count
+    # L=2 is inside the default groove cutoff, so its base topology remains intact.
+    assert mesh.euler_number == 0
     assert mesh.volume > 0
-    assert mesh.bounds[1, 0] > 19.0
+    assert mesh.bounds[1, 0] > 1.75 * config.earth_radius_mm
     assert tubes.is_volume
     assert tubes.body_count == 4
     assert LShellGenerator().output_names(config) == (
@@ -109,6 +108,23 @@ def test_field_line_tube_spacing_tightens_for_outer_l_shells() -> None:
     assert settings.line_count_for_l(45.0) == 71
     assert settings.actual_spacing_for_l(60.0) == 3.0
     assert settings.actual_spacing_for_l(100.0) == 3.0
+
+
+def test_field_line_grooves_start_at_l_6_by_default() -> None:
+    settings = FieldLineTubeSettings()
+
+    assert not settings.grooves_shell(2.0)
+    assert not settings.grooves_shell(4.0)
+    assert settings.grooves_shell(6.0)
+    assert settings.grooves_shell(100.0)
+
+
+def test_field_line_groove_cutoff_is_configurable() -> None:
+    settings = FieldLineTubeSettings(groove_minimum_l=8.0)
+
+    assert not settings.grooves_shell(6.0)
+    assert settings.grooves_shell(8.0)
+    assert not FieldLineTubeSettings(grooves_enabled=False).grooves_shell(100.0)
 
 
 def test_field_line_tube_cuts_a_groove_into_a_closed_surface() -> None:
