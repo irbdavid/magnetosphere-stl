@@ -12,6 +12,7 @@ from magnetosphere_stl import (
 from magnetosphere_stl.components import random_field_lines as random_component
 from magnetosphere_stl.components.random_field_lines import (
     RandomFieldLineGenerator,
+    _ordered_trace_points,
     sample_equatorial_half_plane_seeds,
 )
 from magnetosphere_stl.models.shue import inside_shue_magnetopause
@@ -75,9 +76,10 @@ def test_random_generator_exports_clipped_closed_tubes(monkeypatch) -> None:
     )
 
     def fake_trace(seed, config, model_name, parameters):
+        terminal = TraceTerminal.EARTH if seed[0] == 2.0 else TraceTerminal.INVALID
         north = FieldLineHalf(
             np.asarray((seed, seed + (0.0, 0.0, 2.0))),
-            TraceTerminal.INVALID,
+            terminal,
         )
         south = FieldLineHalf(
             np.asarray((seed, seed + (0.0, 0.0, -2.0))),
@@ -96,7 +98,22 @@ def test_random_generator_exports_clipped_closed_tubes(monkeypatch) -> None:
 
     assert mesh.is_volume
     assert mesh.is_watertight
-    assert mesh.body_count == 2
+    assert mesh.body_count == 1
+
+
+def test_random_trace_requires_at_least_one_earth_endpoint() -> None:
+    seed = np.asarray((5.0, 2.0, 0.0))
+    earth = FieldLineHalf(
+        np.asarray((seed, (1.0, 0.0, 0.0))),
+        TraceTerminal.EARTH,
+    )
+    magnetopause = FieldLineHalf(
+        np.asarray((seed, (9.0, 4.0, 0.0))),
+        TraceTerminal.INVALID,
+    )
+
+    assert _ordered_trace_points((earth, magnetopause)) is not None
+    assert _ordered_trace_points((magnetopause, magnetopause)) is None
 
 
 @pytest.mark.parametrize(

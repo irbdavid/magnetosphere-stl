@@ -13,7 +13,11 @@ from magnetosphere_stl.models.shue import (
     shue_parameters,
     shue_transverse_radius_at_x,
 )
-from magnetosphere_stl.models.tsyganenko import prepare_model, trace_field_halves
+from magnetosphere_stl.models.tsyganenko import (
+    TraceTerminal,
+    prepare_model,
+    trace_field_halves,
+)
 
 
 def sample_equatorial_half_plane_seeds(config: ProjectConfig) -> np.ndarray:
@@ -66,9 +70,11 @@ def sample_equatorial_half_plane_seeds(config: ProjectConfig) -> np.ndarray:
 
 
 def _ordered_trace_points(halves) -> np.ndarray | None:
-    """Join two usable finite trace halves through their common seed."""
+    """Join trace halves only when the resulting line reaches Earth."""
 
     if any(len(half.points_re) < 2 for half in halves):
+        return None
+    if not any(half.terminal is TraceTerminal.EARTH for half in halves):
         return None
     return np.vstack((halves[0].points_re[::-1], halves[1].points_re[1:]))
 
