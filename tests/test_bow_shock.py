@@ -52,6 +52,14 @@ def test_jelinek_standoff_responds_to_dynamic_pressure() -> None:
     assert bow_shock_standoff_re(2.0) > magnetopause_r0
 
 
+def test_default_print_spans_250_mm_from_tail_to_bow_shock_nose() -> None:
+    config = ProjectConfig()
+    nose_x_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
+    span_re = nose_x_re - config.resolution.tail_x_min_re
+
+    assert span_re * config.earth_radius_mm == pytest.approx(250.0)
+
+
 def test_bow_shock_shell_is_watertight_and_cylinder_clipped() -> None:
     config = _coarse_config()
     mesh = BowShockGenerator().generate(config)["bow_shock"]

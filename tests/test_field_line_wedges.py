@@ -6,6 +6,7 @@ import pytest
 import trimesh
 
 from magnetosphere_stl import (
+    FieldLineTubeSettings,
     FieldLineWedgeSettings,
     MeshResolution,
     ProjectConfig,
@@ -87,7 +88,10 @@ def test_wedge_surface_density_is_independent_of_trace_integration_step() -> Non
 
 
 def test_grooved_wedge_remains_closed_after_stl_round_trip(tmp_path) -> None:
-    config = _coarse_config()
+    config = _coarse_config(
+        field_line_tubes=FieldLineTubeSettings(diameter_mm=2.0),
+        earth_radius_mm=10.0,
+    )
     angles = np.linspace(0.0, 2.0 * pi, 4, endpoint=False)
     inner = [_dipole_northern_half(2.0, angle) for angle in angles]
     outer = [_dipole_northern_half(3.0, angle) for angle in angles]

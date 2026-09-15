@@ -53,7 +53,10 @@ def test_magnetopause_is_watertight_and_truncated() -> None:
 
     assert mesh.is_watertight
     assert mesh.volume > 0
-    assert mesh.bounds[0, 0] == pytest.approx(-150.0, abs=0.01)
+    expected_tail_mm = (
+        config.resolution.tail_x_min_re * config.earth_radius_mm
+    )
+    assert mesh.bounds[0, 0] == pytest.approx(expected_tail_mm, abs=0.01)
 
 
 def test_magnetopause_roll_stop_clears_bow_shock_lettering() -> None:

@@ -139,7 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=FieldModel,
         default=FieldModel.T96,
     )
-    parser.add_argument("--earth-radius-mm", type=float, default=10.0)
+    parser.add_argument(
+        "--earth-radius-mm",
+        type=float,
+        default=ProjectConfig().earth_radius_mm,
+    )
     parser.add_argument("--minimum-wall-mm", type=float, default=1.2)
     parser.add_argument("--epoch-utc", default="2020-03-20T12:00:00+00:00")
     parser.add_argument("--target-edge-re", type=float, default=0.25)

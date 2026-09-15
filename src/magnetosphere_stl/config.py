@@ -6,7 +6,10 @@ from enum import StrEnum
 from math import isfinite, sqrt
 
 MINIMUM_TUBE_DIAMETER_MM = 2.0
-DEFAULT_TUBE_DIAMETER_MM = 4.0
+DEFAULT_TUBE_DIAMETER_MM = 2.0
+DEFAULT_RANDOM_FIELD_LINE_DIAMETER_MM = 5.0
+# At the default 2 nPa pressure, this makes X=-50 to the bow-shock nose 250 mm.
+DEFAULT_EARTH_RADIUS_MM = 3.9362803681679717
 
 
 class FieldModel(StrEnum):
@@ -504,7 +507,7 @@ class ProjectConfig:
     polar_field_lines: PolarFieldLineSettings = PolarFieldLineSettings()
     peel: PeelSettings = PeelSettings()
     epoch_utc: str = "2020-03-20T12:00:00+00:00"
-    earth_radius_mm: float = 10.0
+    earth_radius_mm: float = DEFAULT_EARTH_RADIUS_MM
     minimum_wall_mm: float = 1.2
     coordinate_system: str = "GSM"
 

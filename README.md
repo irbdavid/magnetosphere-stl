@@ -43,9 +43,14 @@ because it produces multi-million-triangle magnetopause meshes.
 Circular rings on the axisymmetric magnetopause and bow shock use a separate maximum
 radial chord error of `0.025 R_E` rather than forcing every circumferential edge to
 the target edge length. At the default print scale this bounds the polygonal deviation
-to 0.25 mm while avoiding excessive sampling on the wide, smooth tail rings. The
+to about 0.10 mm while avoiding excessive sampling on the wide, smooth tail rings. The
 meridional boundary sampling and all other components continue to use the target edge
 length. Override this with `--boundary-chord-error-re` when needed.
+
+The default print scale is `3.936280 mm/R_E`. With the standard 2 nPa solar-wind
+pressure, this makes the complete X extent from the `X = -50 R_E` tail plane to the
+Jelínek bow-shock nose exactly 250 mm. Override it with `--earth-radius-mm` when a
+different physical size is needed; changing the driving pressure also moves the nose.
 
 The magnetopause uses the [Shue et al. (1998)](https://doi.org/10.1029/98JA01103)
 empirical form. Dynamic pressure controls its scale, IMF Bz controls its standoff and
@@ -133,7 +138,7 @@ whole number of equally spaced field lines. Control the profile with
 `--tube-dense-spacing-end-l`, and `--tube-min-azimuth-spacing-deg`.
 
 All printable tube systems enforce a minimum 2 mm diameter. L-shell ridge tubes
-default to 4 mm, with an eight-sided cross section and 2 mm path sampling.
+default to 2 mm, with an eight-sided cross section and 2 mm path sampling.
 Control these with `--tube-diameter-mm`, `--tube-sides`, and
 `--tube-path-step-mm`. The inner and minimum spacing anchors must divide 360° evenly.
 Tubes inherit their L-shell's field-aligned sector selection by default. Exact tubes
@@ -419,7 +424,7 @@ when subtracted from the peeled magnetopause.
 The contour grid covers the complete equatorial Shue magnetosphere: from the
 configured negative-X tail plane to the subsolar nose, and across the full dawn–dusk
 width of the magnetopause at that tail plane. Defaults seed potential levels at radii
-2, 3, 4, 5, 6, 8, 10, 15, 25, and 40 R_E and sweep them into 4 mm, eight-sided
+2, 3, 4, 5, 6, 8, 10, 15, 25, and 40 R_E and sweep them into 2 mm, eight-sided
 tubes. The generator also draws three times the requested number of quantile levels
 as candidates across the full potential distribution. Seed-radius paths are considered
 first, then candidates coming within `0.5 R_E` of an accepted 3D centerline are
@@ -458,7 +463,7 @@ Tsyganenko/IGRF field outward until it reaches Earth, the magnetopause, or the
 configured negative-X boundary. The traced coordinates are then placed exactly in
 the X–Z display plane so the result can serve as a clear meridional visual element.
 
-The fan uses capped 4 mm, eight-sided tubes. Its lightweight display tracer steps
+The fan uses capped 2 mm, eight-sided tubes. Its lightweight display tracer steps
 at `0.1 R_E`, independently of the more precise L-shell tracer, and the printable
 centerlines are sampled every 2 mm. Configure these with
 `--polar-half-width-deg`, `--polar-angular-spacing-deg`,
