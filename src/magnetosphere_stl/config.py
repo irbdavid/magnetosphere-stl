@@ -265,6 +265,33 @@ class BowShockSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class MagnetosheathTextureSettings:
+    """Image-derived relief on the exposed bow-shock cut faces."""
+
+    enabled: bool = False
+    image_path: str = "resources/wave-texture.png"
+    amplitude_re: float = 1.0
+    grid_step_re: float = 1.0
+    boundary_fade_re: float = 2.0
+    downstream_stretch: float = 2.0
+
+    def __post_init__(self) -> None:
+        positive_values = (
+            self.amplitude_re,
+            self.grid_step_re,
+            self.boundary_fade_re,
+        )
+        if any(not isfinite(value) or value <= 0 for value in positive_values):
+            raise ValueError(
+                "magnetosheath texture dimensions must be finite and positive"
+            )
+        if not self.image_path.strip():
+            raise ValueError("magnetosheath texture image path must not be empty")
+        if not isfinite(self.downstream_stretch) or self.downstream_stretch < 1.0:
+            raise ValueError("magnetosheath downstream stretch must be at least one")
+
+
+@dataclass(frozen=True, slots=True)
 class ConvectionStreamlineSettings:
     """Equatorial corotation plus Volland-Stern convection tube controls."""
 
@@ -459,6 +486,9 @@ class ProjectConfig:
     random_field_lines: RandomFieldLineSettings = RandomFieldLineSettings()
     field_line_wedges: FieldLineWedgeSettings = FieldLineWedgeSettings()
     bow_shock: BowShockSettings = BowShockSettings()
+    magnetosheath_texture: MagnetosheathTextureSettings = (
+        MagnetosheathTextureSettings()
+    )
     convection_streamlines: ConvectionStreamlineSettings = (
         ConvectionStreamlineSettings()
     )

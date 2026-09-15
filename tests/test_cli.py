@@ -199,6 +199,46 @@ def test_only_current_sheet_selects_and_enables_generator(
     assert generators[0].output_names(config) == ("current_sheet",)
 
 
+def test_magnetosheath_texture_can_be_enabled(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(
+        config,
+        output_dir,
+        *,
+        generators=None,
+        overwrite=False,
+    ):
+        captured["config"] = config
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    cli.main(
+        [
+            "--output",
+            str(tmp_path),
+            "--only",
+            "bow-shock",
+            "--peel",
+            "--magnetosheath-texture",
+            "--magnetosheath-texture-amplitude-re",
+            "1.5",
+            "--magnetosheath-texture-image",
+            "replacement.png",
+            "--magnetosheath-texture-downstream-stretch",
+            "3",
+        ]
+    )
+
+    settings = captured["config"].magnetosheath_texture
+    assert settings.enabled
+    assert settings.amplitude_re == 1.5
+    assert settings.image_path == "replacement.png"
+    assert settings.downstream_stretch == 3.0
+
+
 def test_only_field_line_wedges_configures_ranges(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 

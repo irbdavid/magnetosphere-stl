@@ -16,6 +16,7 @@ from magnetosphere_stl.config import (
     FieldModel,
     KelvinHelmholtzSettings,
     LShellSettings,
+    MagnetosheathTextureSettings,
     MeshResolution,
     PeelSettings,
     PolarFieldLineSettings,
@@ -182,6 +183,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--bow-shock-engraving-depth-mm",
         type=float,
         default=bow_shock_defaults.engraving_depth_mm,
+    )
+    texture_defaults = MagnetosheathTextureSettings()
+    parser.add_argument(
+        "--magnetosheath-texture",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="add image-derived relief to the exposed bow-shock cut faces",
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-image",
+        default=texture_defaults.image_path,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-amplitude-re",
+        type=float,
+        default=texture_defaults.amplitude_re,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-grid-step-re",
+        type=float,
+        default=texture_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-downstream-stretch",
+        type=float,
+        default=texture_defaults.downstream_stretch,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-boundary-fade-re",
+        type=float,
+        default=texture_defaults.boundary_fade_re,
     )
     convection_defaults = ConvectionStreamlineSettings()
     parser.add_argument(
@@ -792,6 +824,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir = args.output
     config = replace(
         config,
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=_optional_feature_enabled(
+                args.magnetosheath_texture,
+                defaults=False,
+            ),
+            image_path=args.magnetosheath_texture_image,
+            amplitude_re=args.magnetosheath_texture_amplitude_re,
+            grid_step_re=args.magnetosheath_texture_grid_step_re,
+            boundary_fade_re=args.magnetosheath_texture_boundary_fade_re,
+            downstream_stretch=args.magnetosheath_texture_downstream_stretch,
+        ),
         current_sheet=CurrentSheetSettings(
             enabled=_optional_feature_enabled(
                 args.current_sheet,

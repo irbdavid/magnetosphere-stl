@@ -4,6 +4,7 @@ import trimesh
 
 from magnetosphere_stl import (
     BowShockSettings,
+    MagnetosheathTextureSettings,
     MeshResolution,
     PeelSettings,
     ProjectConfig,
@@ -12,6 +13,11 @@ from magnetosphere_stl import (
 from magnetosphere_stl.components import BowShockGenerator, MagnetopauseGenerator
 from magnetosphere_stl.components import bow_shock as bow_shock_component
 from magnetosphere_stl.components.bow_shock import (
+    _apply_magnetosheath_texture,
+    _load_texture_heightmap,
+    _radial_cut_face_vertex_indices,
+    _sample_texture_height_re,
+    _texture_fade_re,
     bow_shock_clip_radius_re,
     solid_bow_shock_envelope,
 )
@@ -211,6 +217,152 @@ def test_peeled_bow_shock_is_a_solid_cutaway() -> None:
     assert peeled.is_volume
     assert peeled.body_count == 1
     assert peeled.volume > shell.volume * 5.0
+
+
+def test_magnetosheath_texture_image_is_normalized_and_bounded() -> None:
+    config = _coarse_config(
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=True,
+            amplitude_re=1.0,
+        )
+    )
+    heightmap = _load_texture_heightmap(config.magnetosheath_texture.image_path)
+    x_re = np.linspace(
+        config.resolution.tail_x_min_re,
+        bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa),
+        500,
+    )
+    transverse_re = np.linspace(0.0, bow_shock_clip_radius_re(config), 500)
+
+    height = _sample_texture_height_re(heightmap, x_re, transverse_re, config)
+
+    assert heightmap.ndim == 2
+    assert heightmap.min() == pytest.approx(0.0)
+    assert heightmap.max() == pytest.approx(1.0)
+    assert height.min() >= 0.0
+    assert height.max() <= config.magnetosheath_texture.amplitude_re
+    assert np.ptp(height) > 0.5 * config.magnetosheath_texture.amplitude_re
+
+
+def test_magnetosheath_texture_stretches_progressively_downstream() -> None:
+    config = _coarse_config(
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=True,
+            downstream_stretch=2.0,
+        )
+    )
+    heightmap = np.tile(np.linspace(0.0, 1.0, 100), (2, 1))
+    x_max_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
+    transverse_re = np.full(4, 10.0)
+    samples = _sample_texture_height_re(
+        heightmap,
+        np.asarray((x_max_re - 5.0, x_max_re - 10.0, -40.0, -45.0)),
+        transverse_re,
+        config,
+    )
+
+    nose_change = abs(samples[1] - samples[0])
+    tail_change = abs(samples[3] - samples[2])
+    assert tail_change < nose_change
+
+
+def test_magnetosheath_texture_spans_nose_to_tail() -> None:
+    config = _coarse_config(
+        magnetosheath_texture=MagnetosheathTextureSettings(enabled=True)
+    )
+    heightmap = np.tile(np.linspace(0.0, 1.0, 100), (2, 1))
+    x_max_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
+
+    samples = _sample_texture_height_re(
+        heightmap,
+        np.asarray((config.resolution.tail_x_min_re, x_max_re)),
+        np.asarray((10.0, 10.0)),
+        config,
+    )
+
+    assert samples[0] == pytest.approx(0.0)
+    assert samples[1] == pytest.approx(config.magnetosheath_texture.amplitude_re)
+
+
+def test_magnetosheath_cut_face_selection_reaches_downstream_edge() -> None:
+    config = _coarse_config(peel=PeelSettings(enabled=True))
+    planar = subtract_azimuthal_wedge(
+        solid_bow_shock_envelope(config),
+        config.peel.bow_shock_opening_deg,
+        config.peel.bow_shock_center_clock_deg,
+        axis="x",
+    )
+    vertices, _ = trimesh.remesh.subdivide_to_size(
+        planar.vertices,
+        planar.faces,
+        max_edge=config.earth_radius_mm,
+        max_iter=8,
+    )
+    retained_center = np.deg2rad(config.peel.bow_shock_center_clock_deg + 180.0)
+    retained_half = np.deg2rad(
+        (360.0 - config.peel.bow_shock_opening_deg) / 2.0
+    )
+
+    for angle in (retained_center - retained_half, retained_center + retained_half):
+        selected = _radial_cut_face_vertex_indices(vertices, angle)
+        downstream_limit_re = config.resolution.tail_x_min_re + 5.0
+        downstream = (
+            vertices[selected, 0] < downstream_limit_re * config.earth_radius_mm
+        )
+        transverse_re = np.linalg.norm(vertices[selected, 1:3], axis=1)
+        transverse_re /= config.earth_radius_mm
+
+        assert downstream.any()
+        assert transverse_re[downstream].max() > 0.99 * bow_shock_clip_radius_re(
+            config
+        )
+
+
+def test_magnetosheath_texture_fades_inside_magnetopause() -> None:
+    config = _coarse_config(
+        magnetosheath_texture=MagnetosheathTextureSettings(enabled=True)
+    )
+    points_re = np.asarray(((0.0, 2.0, 0.0), (0.0, 18.0, 0.0)))
+
+    fade = _texture_fade_re(points_re, lower_z_re=-30.0, config=config)
+
+    assert fade[0] == 0.0
+    assert fade[1] > 0.0
+
+
+def test_magnetosheath_texture_keeps_bow_shock_watertight(tmp_path) -> None:
+    config = _coarse_config(
+        peel=PeelSettings(enabled=True),
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=True,
+            amplitude_re=0.5,
+            grid_step_re=2.0,
+        ),
+    )
+    planar = subtract_azimuthal_wedge(
+        solid_bow_shock_envelope(config),
+        config.peel.bow_shock_opening_deg,
+        config.peel.bow_shock_center_clock_deg,
+        axis="x",
+    )
+
+    textured = _apply_magnetosheath_texture(planar, config)
+
+    assert textured.is_volume
+    assert textured.body_count == 1
+    assert len(textured.faces) > len(planar.faces)
+    assert textured.volume != pytest.approx(planar.volume)
+    path = tmp_path / "textured_bow_shock.stl"
+    textured.export(path)
+    reloaded = trimesh.load(path, process=True)
+    assert reloaded.is_volume
+
+
+def test_magnetosheath_texture_dimensions_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        MagnetosheathTextureSettings(amplitude_re=0.0)
+    with pytest.raises(ValueError, match="stretch must be at least one"):
+        MagnetosheathTextureSettings(downstream_stretch=0.9)
 
 
 def test_peeled_run_also_requests_unpeeled_bow_shock() -> None:
