@@ -9,13 +9,13 @@ cutaways revealing inner structures.
 This is an almost entirely vibe-coded project. The end product is intended as
 a visual aid to help people understand the 3D structure of Earth's magnetosphere.
 Much of the implementation was generated with AI assistance and then iteratively
-reviewed against rendered output and automated tests.
+reviewed against rendered output and automated tests, by various self-proclaimed experts in Space Plasma Physics.
 
 This is illustrative software, not a validated space-weather or engineering model.
 Scientific accuracy is not guaranteed, and generated meshes should be inspected in a
 mesh editor or slicer before printing. The empirical models, display-oriented
 approximations, clipping rules, and printability transformations are described below
-so their limitations do not disappear behind a plausible-looking STL.
+so their constraints do not disappear behind a  hopefully plausible-looking STL.
 
 ## Components
 
