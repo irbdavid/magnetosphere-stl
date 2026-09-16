@@ -384,7 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tube-groove-minimum-l",
         type=float,
         default=tube_defaults.groove_minimum_l,
-        help="smallest L-shell that receives field-line grooves (default: 6)",
+        help="groove L-shells above this threshold (default: 6)",
     )
     parser.add_argument(
         "--tube-azimuth-spacing-deg",
@@ -888,9 +888,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.only:
             generator_names = list(dict.fromkeys(args.only))
-            if random_field_lines_enabled:
-                if "random-field-lines" not in generator_names:
-                    generator_names.append("random-field-lines")
             selected_generators = tuple(
                 COMPONENT_GENERATORS[name] for name in generator_names
             )

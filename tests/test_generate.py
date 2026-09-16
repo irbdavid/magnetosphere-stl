@@ -34,14 +34,18 @@ class SphereGenerator:
 @dataclass
 class QuickTestGenerator:
     def output_names(self, config: ProjectConfig) -> tuple[str, ...]:
-        return ("retained", "omitted")
+        return ("retained", "omitted", "open_surface")
 
     def generate(self, config: ProjectConfig) -> dict[str, trimesh.Trimesh]:
         omitted = trimesh.creation.icosphere(radius=1.0)
         omitted.apply_translation((0.0, -10.0, 0.0))
+        open_surface = trimesh.creation.icosphere(radius=10.0)
+        open_surface.update_faces(range(len(open_surface.faces) - 1))
+        open_surface.remove_unreferenced_vertices()
         return {
             "retained": trimesh.creation.icosphere(radius=10.0),
             "omitted": omitted,
+            "open_surface": open_surface,
         }
 
 
@@ -63,6 +67,18 @@ def test_generate_all_exports_component_and_manifest(tmp_path) -> None:
     assert manifest["components"] == ["test_component.stl"]
 
 
+def test_existing_stls_outside_run_manifest_are_reported(tmp_path, capsys) -> None:
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    stale_file = output_dir / "old_component.stl"
+    stale_file.write_bytes(b"old")
+
+    generate_all(ProjectConfig(), output_dir, generators=[SphereGenerator()])
+
+    assert stale_file.read_bytes() == b"old"
+    assert "old_component.stl" in capsys.readouterr().out
+
+
 def test_quick_test_print_removes_below_either_y_or_z_boundary(tmp_path) -> None:
     config = ProjectConfig(earth_radius_mm=1.0, quick_test_print=True)
 
@@ -72,15 +88,22 @@ def test_quick_test_print_removes_below_either_y_or_z_boundary(tmp_path) -> None
         generators=[QuickTestGenerator()],
     )
 
-    assert [path.name for path in result.component_files] == ["retained.stl"]
+    assert [path.name for path in result.component_files] == [
+        "retained.stl",
+        "open_surface.stl",
+    ]
     retained = trimesh.load_mesh(result.component_files[0], process=True)
     assert retained.is_volume
     assert retained.bounds[0, 1] == pytest.approx(-2.0)
     assert retained.bounds[0, 2] == pytest.approx(-4.0)
     assert not (result.output_dir / "omitted.stl").exists()
+    open_surface = trimesh.load_mesh(result.output_dir / "open_surface.stl")
+    assert not open_surface.is_watertight
+    assert open_surface.bounds[0, 1] == pytest.approx(-2.0)
+    assert open_surface.bounds[0, 2] == pytest.approx(-4.0)
     manifest = json.loads(result.manifest_file.read_text())
     assert manifest["config"]["quick_test_print"] is True
-    assert manifest["components"] == ["retained.stl"]
+    assert manifest["components"] == ["retained.stl", "open_surface.stl"]
 
 
 def test_generate_all_protects_existing_outputs(tmp_path) -> None:

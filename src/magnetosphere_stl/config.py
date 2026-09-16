@@ -193,9 +193,9 @@ class FieldLineTubeSettings:
         return 360.0 / self.line_count_for_l(l_value)
 
     def grooves_shell(self, l_value: float) -> bool:
-        """Return whether field-line channels should be cut into this L-shell."""
+        """Cut channels only on shells above the configured L threshold."""
 
-        return self.grooves_enabled and l_value >= self.groove_minimum_l
+        return self.grooves_enabled and l_value > self.groove_minimum_l
 
 
 @dataclass(frozen=True, slots=True)

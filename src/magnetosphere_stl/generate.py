@@ -74,10 +74,25 @@ def _clip_to_quick_test_corner(
 ) -> trimesh.Trimesh | None:
     """Remove geometry below either quick-test Y or Z boundary."""
 
+    if mesh.is_empty:
+        return None
     lower_y = QUICK_TEST_MIN_Y_RE * config.earth_radius_mm
     lower_z = QUICK_TEST_MIN_Z_RE * config.earth_radius_mm
     if mesh.bounds[1, 1] <= lower_y or mesh.bounds[1, 2] <= lower_z:
         return None
+
+    if not mesh.is_volume:
+        vertices, faces = mesh.vertices, mesh.faces
+        for origin, normal in (
+            ((0.0, lower_y, 0.0), (0.0, 1.0, 0.0)),
+            ((0.0, 0.0, lower_z), (0.0, 0.0, 1.0)),
+        ):
+            vertices, faces, _ = trimesh.intersections.slice_faces_plane(
+                vertices, faces, plane_origin=origin, plane_normal=normal
+            )
+        if len(faces) == 0:
+            return None
+        return trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
 
     margin = config.earth_radius_mm
     lower = mesh.bounds[0] - margin
@@ -210,7 +225,10 @@ def generate_all(
             if config.quick_test_print:
                 mesh = _clip_to_quick_test_corner(mesh, config)
                 if mesh is None:
-                    print(f"Quick-test clip omitted {name}: no retained geometry")
+                    print(
+                        f"Quick-test clip omitted {name}: "
+                        "no retained geometry"
+                    )
                     continue
             component_file = destination / f"{name}.stl"
             mesh.export(component_file, file_type="stl")
@@ -226,4 +244,10 @@ def generate_all(
         "components": [path.name for path in component_paths],
     }
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    stale_files = sorted(set(destination.glob("*.stl")) - set(component_paths))
+    if stale_files:
+        print(
+            "Note: existing STL files outside this run's manifest remain in "
+            f"{destination}: {', '.join(path.name for path in stale_files)}"
+        )
     return GenerationResult(destination, component_paths, manifest_file)

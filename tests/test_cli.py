@@ -80,6 +80,22 @@ def test_quick_test_print_is_an_explicit_non_default_option(monkeypatch) -> None
     assert captured["config"].quick_test_print
 
 
+def test_only_under_defaults_does_not_add_random_field_lines(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured["config"] = config
+        captured["generators"] = generators
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults", "--only", "bow-shock"]) == 0
+    assert captured["config"].random_field_lines.enabled
+    assert captured["generators"] == (cli.COMPONENT_GENERATORS["bow-shock"],)
+
+
 def test_default_presets_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
         cli.main(["--defaults", "--defaults-high"])

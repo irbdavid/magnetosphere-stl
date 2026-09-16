@@ -110,12 +110,13 @@ def test_field_line_tube_spacing_tightens_for_outer_l_shells() -> None:
     assert settings.actual_spacing_for_l(100.0) == 3.0
 
 
-def test_field_line_grooves_start_at_l_6_by_default() -> None:
+def test_field_line_grooves_start_above_l_6_by_default() -> None:
     settings = FieldLineTubeSettings()
 
     assert not settings.grooves_shell(2.0)
     assert not settings.grooves_shell(4.0)
-    assert settings.grooves_shell(6.0)
+    assert not settings.grooves_shell(6.0)
+    assert settings.grooves_shell(8.0)
     assert settings.grooves_shell(100.0)
 
 
@@ -123,7 +124,8 @@ def test_field_line_groove_cutoff_is_configurable() -> None:
     settings = FieldLineTubeSettings(groove_minimum_l=8.0)
 
     assert not settings.grooves_shell(6.0)
-    assert settings.grooves_shell(8.0)
+    assert not settings.grooves_shell(8.0)
+    assert settings.grooves_shell(15.0)
     assert not FieldLineTubeSettings(grooves_enabled=False).grooves_shell(100.0)
 
 
