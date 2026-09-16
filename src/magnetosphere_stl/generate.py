@@ -64,6 +64,44 @@ COMPONENT_GENERATORS: dict[str, ComponentGenerator] = {
 DEFAULT_GENERATORS: tuple[ComponentGenerator, ...] = tuple(
     COMPONENT_GENERATORS.values()
 )
+QUICK_TEST_MIN_Y_RE = -2.0
+QUICK_TEST_MIN_Z_RE = -4.0
+
+
+def _clip_to_quick_test_corner(
+    mesh: trimesh.Trimesh,
+    config: ProjectConfig,
+) -> trimesh.Trimesh | None:
+    """Remove geometry below either quick-test Y or Z boundary."""
+
+    lower_y = QUICK_TEST_MIN_Y_RE * config.earth_radius_mm
+    lower_z = QUICK_TEST_MIN_Z_RE * config.earth_radius_mm
+    if mesh.bounds[1, 1] <= lower_y or mesh.bounds[1, 2] <= lower_z:
+        return None
+
+    margin = config.earth_radius_mm
+    lower = mesh.bounds[0] - margin
+    upper = mesh.bounds[1] + margin
+    lower[1] = lower_y
+    lower[2] = lower_z
+    keep_box = trimesh.creation.box(
+        extents=upper - lower,
+        transform=trimesh.transformations.translation_matrix(
+            0.5 * (lower + upper)
+        ),
+    )
+    clipped = trimesh.boolean.intersection(
+        [mesh, keep_box],
+        engine="manifold",
+        check_volume=True,
+    )
+    if clipped.is_empty:
+        return None
+    clipped.process(validate=True)
+    trimesh.repair.fix_normals(clipped, multibody=True)
+    if not clipped.is_volume:
+        raise RuntimeError("quick-test clipping produced an open component")
+    return clipped
 
 
 def _l_value_from_artifact(name: str) -> float | None:
@@ -126,9 +164,9 @@ def generate_all(
     if len(names) != len(set(names)):
         raise ValueError("component generator names must be unique")
 
-    component_files = tuple(destination / f"{name}.stl" for name in names)
+    possible_component_files = tuple(destination / f"{name}.stl" for name in names)
     manifest_file = destination / "setup.json"
-    targets = (*component_files, manifest_file)
+    targets = (*possible_component_files, manifest_file)
     collisions = tuple(path for path in targets if path.exists())
     if collisions and not overwrite:
         joined = ", ".join(path.name for path in collisions)
@@ -136,6 +174,7 @@ def generate_all(
 
     destination.mkdir(parents=True, exist_ok=True)
     generated_names: set[str] = set()
+    component_files: list[Path] = []
     for generator in selected:
         expected = set(generator.output_names(config))
         artifacts = generator.generate(config)
@@ -168,14 +207,23 @@ def generate_all(
             finish_artifact = getattr(generator, "finish_artifact", None)
             if finish_artifact is not None:
                 mesh = finish_artifact(config, name, mesh)
-            mesh.export(destination / f"{name}.stl", file_type="stl")
+            if config.quick_test_print:
+                mesh = _clip_to_quick_test_corner(mesh, config)
+                if mesh is None:
+                    print(f"Quick-test clip omitted {name}: no retained geometry")
+                    continue
+            component_file = destination / f"{name}.stl"
+            mesh.export(component_file, file_type="stl")
+            component_files.append(component_file)
             generated_names.add(name)
-    if generated_names != set(names):
+    if not config.quick_test_print and generated_names != set(names):
         raise RuntimeError("not all requested component artifacts were generated")
+
+    component_paths = tuple(component_files)
 
     manifest = {
         "config": asdict(config),
-        "components": [path.name for path in component_files],
+        "components": [path.name for path in component_paths],
     }
     manifest_file.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    return GenerationResult(destination, component_files, manifest_file)
+    return GenerationResult(destination, component_paths, manifest_file)

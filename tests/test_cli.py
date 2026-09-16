@@ -35,6 +35,7 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert config.polar_field_lines.angular_spacing_deg == 2.0
     assert config.bow_shock.roll_stop_height_re == 6.0
     assert config.bow_shock.engraving_height_mm == 10.0
+    assert not config.quick_test_print
     assert not config.kelvin_helmholtz.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default")
@@ -63,6 +64,20 @@ def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) ->
     assert config.random_field_lines.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default-high")
+
+
+def test_quick_test_print_is_an_explicit_non_default_option(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, overwrite=False):
+        captured["config"] = config
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults", "--quick-test-print"]) == 0
+    assert captured["config"].quick_test_print
 
 
 def test_default_presets_are_mutually_exclusive() -> None:

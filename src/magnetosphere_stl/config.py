@@ -519,6 +519,7 @@ class ProjectConfig:
     earth_radius_mm: float = DEFAULT_EARTH_RADIUS_MM
     minimum_wall_mm: float = 1.2
     coordinate_system: str = "GSM"
+    quick_test_print: bool = False
 
     def __post_init__(self) -> None:
         epoch = datetime.fromisoformat(self.epoch_utc)

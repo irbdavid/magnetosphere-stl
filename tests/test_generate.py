@@ -31,6 +31,20 @@ class SphereGenerator:
         }
 
 
+@dataclass
+class QuickTestGenerator:
+    def output_names(self, config: ProjectConfig) -> tuple[str, ...]:
+        return ("retained", "omitted")
+
+    def generate(self, config: ProjectConfig) -> dict[str, trimesh.Trimesh]:
+        omitted = trimesh.creation.icosphere(radius=1.0)
+        omitted.apply_translation((0.0, -10.0, 0.0))
+        return {
+            "retained": trimesh.creation.icosphere(radius=10.0),
+            "omitted": omitted,
+        }
+
+
 def test_generate_all_exports_component_and_manifest(tmp_path) -> None:
     config = ProjectConfig(
         solar_wind=SolarWindConditions(dynamic_pressure_npa=3.5),
@@ -47,6 +61,26 @@ def test_generate_all_exports_component_and_manifest(tmp_path) -> None:
     assert manifest["config"]["solar_wind"]["dynamic_pressure_npa"] == 3.5
     assert manifest["config"]["resolution"]["target_edge_length_re"] == 0.04
     assert manifest["components"] == ["test_component.stl"]
+
+
+def test_quick_test_print_removes_below_either_y_or_z_boundary(tmp_path) -> None:
+    config = ProjectConfig(earth_radius_mm=1.0, quick_test_print=True)
+
+    result = generate_all(
+        config,
+        tmp_path / "quick",
+        generators=[QuickTestGenerator()],
+    )
+
+    assert [path.name for path in result.component_files] == ["retained.stl"]
+    retained = trimesh.load_mesh(result.component_files[0], process=True)
+    assert retained.is_volume
+    assert retained.bounds[0, 1] == pytest.approx(-2.0)
+    assert retained.bounds[0, 2] == pytest.approx(-4.0)
+    assert not (result.output_dir / "omitted.stl").exists()
+    manifest = json.loads(result.manifest_file.read_text())
+    assert manifest["config"]["quick_test_print"] is True
+    assert manifest["components"] == ["retained.stl"]
 
 
 def test_generate_all_protects_existing_outputs(tmp_path) -> None:

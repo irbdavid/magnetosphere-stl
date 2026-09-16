@@ -83,6 +83,12 @@ plus `1 R_E`. With the default 6 R_E bow-shock stop, the magnetopause is therefo
 trimmed by 7 R_E, keeping it above the recessed lettering when the components are
 nested while reducing its print volume as well.
 
+For a small geometry test, add `--quick-test-print`. This non-default mode applies a
+hard Boolean clip to every finished component, removing anything satisfying
+`Y < -2 R_E` or `Z < -4 R_E`. This retains the positive-Y, positive-Z quadrant with
+a small margin. Components that do not reach the retained region are omitted from the
+output and its manifest.
+
 The L-shell component defaults to equatorial seed radii
 `L = 2, 4, 6, 9, 15, 30, 45, 100`.
 At each

@@ -128,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=tuple(COMPONENT_GENERATORS),
         help="generate only this component group; repeat to select several",
     )
+    parser.add_argument(
+        "--quick-test-print",
+        action="store_true",
+        help=(
+            "remove geometry where Y < -2 RE or Z < -4 RE from each component"
+        ),
+    )
     parser.add_argument("--dynamic-pressure", type=float, default=2.0, metavar="NPA")
     parser.add_argument("--dst", type=float, default=-10.0, metavar="NT")
     parser.add_argument("--imf-by", type=float, default=0.0, metavar="NT")
@@ -854,6 +861,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir = args.output
     config = replace(
         config,
+        quick_test_print=args.quick_test_print,
         magnetosheath_texture=MagnetosheathTextureSettings(
             enabled=_optional_feature_enabled(
                 args.magnetosheath_texture,
