@@ -386,6 +386,14 @@ at the downstream edge is twice that at the nose. Configure these using
 The texture currently applies to reflex bow-shock openings above 180°, including the
 default 200° cut.
 
+The bundled `resources/wave-texture-original.png` and derived
+`resources/wave-texture.png` are attributed to **cyberhirsch**, based on the
+[TurboSquid source listing](https://www.turbosquid.com/FullPreview/791742).
+That listing describes the asset as royalty-free, but this repository does not
+document a license grant permitting redistribution of these PNGs. They are not
+covered by the project's LGPL license; confirm redistribution rights or replace
+them before publishing the repository.
+
 ## Kelvin–Helmholtz display waves
 
 Add `--kelvin-helmholtz` to perturb both magnetopause flanks with wave crests
