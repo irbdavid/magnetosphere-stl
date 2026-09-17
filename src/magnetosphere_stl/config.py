@@ -203,7 +203,7 @@ class RandomFieldLineSettings:
     """Poisson-like seed sampling on the displayed GSM equatorial half-plane."""
 
     enabled: bool = False
-    minimum_seed_spacing_re: float = 6.0
+    minimum_seed_spacing_re: float = 6.6
     random_seed: int = 0
     maximum_failed_attempts: int = 5_000
     tube_diameter_mm: float = DEFAULT_RANDOM_FIELD_LINE_DIAMETER_MM

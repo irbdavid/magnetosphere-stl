@@ -129,7 +129,7 @@ def _l_value_from_artifact(name: str) -> float | None:
 def _peel_angle_for_artifact(name: str, config: ProjectConfig) -> float:
     if not config.peel.enabled:
         return 0.0
-    if name == "magnetopause":
+    if name in {"earth", "magnetopause"}:
         return config.peel.magnetopause_opening_deg
     if name == "bow_shock":
         return config.peel.bow_shock_opening_deg
@@ -142,7 +142,7 @@ def _peel_angle_for_artifact(name: str, config: ProjectConfig) -> float:
 
 
 def _peel_center_for_artifact(name: str, config: ProjectConfig) -> float:
-    if name == "magnetopause":
+    if name in {"earth", "magnetopause"}:
         return config.peel.boundary_center_clock_deg
     if name == "bow_shock":
         return config.peel.bow_shock_center_clock_deg
@@ -153,7 +153,7 @@ def _peel_center_for_artifact(name: str, config: ProjectConfig) -> float:
 
 
 def _peel_axis_for_artifact(name: str) -> str:
-    if name in {"magnetopause", "bow_shock"}:
+    if name in {"earth", "magnetopause", "bow_shock"}:
         return "x"
     return "z"
 

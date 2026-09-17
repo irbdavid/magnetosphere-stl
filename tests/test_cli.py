@@ -9,10 +9,11 @@ from magnetosphere_stl.generate import GenerationResult
 def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_generate_all(config, output_dir, *, overwrite=False):
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
         captured.update(
             config=config,
             output_dir=output_dir,
+            generators=generators,
             overwrite=overwrite,
         )
         destination = Path(output_dir).resolve()
@@ -22,7 +23,7 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
 
     assert cli.main(["--defaults"]) == 0
     config = captured["config"]
-    assert config.field_line_tubes.enabled
+    assert not config.field_line_tubes.enabled
     assert config.field_line_tubes.grooves_enabled
     assert config.field_line_tubes.groove_minimum_l == 6.0
     assert config.field_line_tubes.diameter_mm == 2.0
@@ -40,13 +41,15 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default")
     assert captured["overwrite"] is False
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
+    assert cli.COMPONENT_GENERATORS["random-field-lines"] in captured["generators"]
 
 
 def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_generate_all(config, output_dir, *, overwrite=False):
-        captured.update(config=config, output_dir=output_dir)
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured.update(config=config, output_dir=output_dir, generators=generators)
         destination = Path(output_dir).resolve()
         return GenerationResult(destination, (), destination / "setup.json")
 
@@ -58,18 +61,40 @@ def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) ->
     assert config.solar_wind.imf_bz_nt == -20.0
     assert config.solar_wind.dst_nt == -10.0
     assert config.solar_wind.kp == 2.0
-    assert config.field_line_tubes.enabled
+    assert not config.field_line_tubes.enabled
     assert config.convection_streamlines.enabled
     assert config.polar_field_lines.enabled
     assert config.random_field_lines.enabled
     assert config.peel.enabled
     assert captured["output_dir"] == Path("output/default-high")
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
+
+
+def test_defaults_can_explicitly_include_l_shells_and_field_line_tubes(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured.update(config=config, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults", "--field-line-tubes"]) == 0
+    assert captured["config"].field_line_tubes.enabled
+    assert cli.COMPONENT_GENERATORS["l-shells"] in captured["generators"]
+
+    assert cli.main(["--defaults", "--only", "l-shells"]) == 0
+    assert not captured["config"].field_line_tubes.enabled
+    assert captured["generators"] == (cli.COMPONENT_GENERATORS["l-shells"],)
 
 
 def test_quick_test_print_is_an_explicit_non_default_option(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_generate_all(config, output_dir, *, overwrite=False):
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
         captured["config"] = config
         destination = Path(output_dir).resolve()
         return GenerationResult(destination, (), destination / "setup.json")
@@ -109,7 +134,7 @@ def test_output_is_required_for_non_default_run() -> None:
 def test_defaults_can_disable_optional_features(monkeypatch) -> None:
     captured = {}
 
-    def fake_generate_all(config, output_dir, *, overwrite=False):
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
         captured["config"] = config
         destination = Path(output_dir).resolve()
         return GenerationResult(destination, (), destination / "setup.json")
@@ -142,7 +167,7 @@ def test_defaults_can_disable_optional_features(monkeypatch) -> None:
 def test_field_line_grooves_can_be_disabled(monkeypatch) -> None:
     captured = {}
 
-    def fake_generate_all(config, output_dir, *, overwrite=False):
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
         captured["config"] = config
         destination = Path(output_dir).resolve()
         return GenerationResult(destination, (), destination / "setup.json")
@@ -365,7 +390,7 @@ def test_random_field_lines_coexist_with_other_field_tracing(
     assert config.random_field_lines.minimum_seed_spacing_re == 6.0
     assert config.random_field_lines.random_seed == 23
     assert config.random_field_lines.tube_diameter_mm == 5.5
-    assert config.field_line_tubes.enabled
+    assert not config.field_line_tubes.enabled
     assert not config.field_line_wedges.enabled
     assert config.polar_field_lines.enabled
-    assert generators is None
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in generators

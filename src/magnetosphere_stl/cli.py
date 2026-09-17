@@ -109,15 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--defaults",
         action="store_true",
         help=(
-            "generate every standard and optional component using ProjectConfig "
-            "defaults and, unless overridden, output/default"
+            "generate the standard cutaway with random field lines, excluding "
+            "L-shells unless requested, in output/default"
         ),
     )
     preset_group.add_argument(
         "--defaults-high",
         action="store_true",
         help=(
-            "generate the complete default component set for a high-storm "
+            "generate the default component set for a high-storm "
             "scenario with 50 nPa dynamic pressure and -20 nT IMF Bz and, "
             "unless overridden, output/default-high"
         ),
@@ -427,7 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "trace randomly spaced seeds from the displayed Z=0, Y>=0 "
+            "trace randomly spaced seeds from the displayed Z=0, Y>=2 RE "
             "magnetosphere half-plane"
         ),
     )
@@ -435,7 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--random-field-line-spacing-re",
         type=float,
         default=random_defaults.minimum_seed_spacing_re,
-        help="minimum distance between accepted random seeds (default: 6 RE)",
+        help="minimum distance between accepted random seeds (default: 6.6 RE)",
     )
     parser.add_argument(
         "--random-field-line-seed",
@@ -551,7 +551,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = set(args.only or ())
     field_line_tubes_enabled = _optional_feature_enabled(
         args.field_line_tubes,
-        defaults=using_defaults,
+        defaults=False,
     )
     convection_enabled = _optional_feature_enabled(
         args.convection_streamlines,
@@ -895,6 +895,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 output_dir,
                 generators=selected_generators,
+                overwrite=args.overwrite,
+            )
+        elif using_defaults:
+            preset_generators = tuple(
+                generator
+                for name, generator in COMPONENT_GENERATORS.items()
+                if name != "l-shells" or args.field_line_tubes is True
+            )
+            result = generate_all(
+                config,
+                output_dir,
+                generators=preset_generators,
                 overwrite=args.overwrite,
             )
         else:
