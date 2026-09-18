@@ -79,7 +79,12 @@ def test_magnetopause_roll_stop_clears_bow_shock_lettering() -> None:
     assert magnetopause_roll_stop_height_re(untrimmed_config) == 1.0
     assert magnetopause_roll_stop_height_re(trimmed_config) == 11.0
     assert trimmed.bounds[0, 2] == pytest.approx(
-        untrimmed.bounds[0, 2] + 6.0 * trimmed_config.earth_radius_mm,
+        untrimmed.bounds[0, 2]
+        + (
+            trimmed_config.bow_shock.roll_stop_height_re
+            - untrimmed_config.bow_shock.roll_stop_height_re
+        )
+        * trimmed_config.earth_radius_mm,
         abs=0.02,
     )
     assert trimmed.bounds[0, 2] == pytest.approx(

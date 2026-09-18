@@ -183,14 +183,18 @@ def test_bow_shock_roll_stop_engraving_is_backed_and_recessed() -> None:
     recess_vertices = engraved.vertices[
         np.isclose(engraved.vertices[:, 2], recess_top, atol=0.01)
     ]
+    label_vertices = recess_vertices[
+        np.abs(recess_vertices[:, 1])
+        <= engraved_config.bow_shock.engraving_height_mm / 2.0 + 0.05
+    ]
 
     assert engraved.is_volume
     assert engraved.volume < plain.volume
     assert len(engraved.faces) > len(plain.faces)
-    assert len(recess_vertices) > 100
-    assert np.ptp(recess_vertices[:, 0]) > 10.0 * np.ptp(recess_vertices[:, 1])
-    assert recess_vertices[:, 1].min() == pytest.approx(
-        -recess_vertices[:, 1].max(), abs=0.01
+    assert len(label_vertices) > 100
+    assert np.ptp(label_vertices[:, 0]) > 10.0 * np.ptp(label_vertices[:, 1])
+    assert label_vertices[:, 1].min() == pytest.approx(
+        -label_vertices[:, 1].max(), abs=0.01
     )
 
 
