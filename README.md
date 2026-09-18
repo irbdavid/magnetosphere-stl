@@ -379,13 +379,14 @@ L-shell generator before lofting. Both paths use the same recorded `PeelSettings
 
 Add `--magnetosheath-texture` to give both exposed bow-shock cut faces a restrained,
 image-derived wave texture in the region outside the Shue magnetopause. The default
-height map is `resources/wave-texture.png`; lighter pixels rise and darker pixels
-remain near the original cut plane. The image is rotated 90° counterclockwise, then
-its full luminance range is normalized to `[0, 1]` before the configured amplitude is
-applied. It is stretched across the complete X domain from the bow-shock nose to the
-configured tail plane, including `X = -50 R_E` by default. The displacement fades to
-zero at the magnetopause, bow shock, and lower roll stop, leaving the cut face flat
-inside the magnetopause and keeping every mesh seam closed.
+height map is `resources/wave-texture.png`; lighter pixels displace the cut faces
+farther and darker pixels remain nearer the original planes. The unrotated image is
+projected onto the GSM X-Y plane: image left/right runs from the configured tail
+plane (`X = -50 R_E` by default) to the bow-shock nose, while image top/bottom
+runs from positive to negative Y. Its full luminance range is normalized to `[0, 1]`
+before the configured amplitude is applied. For this experiment, the boundary fade
+is disabled, so image values at the magnetopause, bow shock, and roll-stop edges
+are retained.
 
 The default maximum displacement is `1 R_E`, with a `1 R_E` relief grid. The image is
 mapped once across the face and stretched progressively along X so its local wavelength
@@ -393,8 +394,9 @@ at the downstream edge is twice that at the nose. Configure these using
 `--magnetosheath-texture-image`,
 `--magnetosheath-texture-amplitude-re`,
 `--magnetosheath-texture-grid-step-re`, and
-`--magnetosheath-texture-boundary-fade-re`, and
 `--magnetosheath-texture-downstream-stretch`. A stretch of `1` disables the X warp.
+`--magnetosheath-texture-boundary-fade-re` is currently unused while the fade is
+commented out.
 The texture currently applies to reflex bow-shock openings above 180°, including the
 default 200° cut.
 

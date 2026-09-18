@@ -63,9 +63,17 @@ def _merge_intervals(
 
 
 def _strip_interval_at_y(triangles_xy: np.ndarray, y: float) -> tuple[float, float]:
+    longitudinal = triangles_xy[:, :, 1]
+    lower = longitudinal.min(axis=1)
+    upper = longitudinal.max(axis=1)
+    reaches_y = (
+        ((lower <= y) & (y <= upper))
+        | np.isclose(lower, y)
+        | np.isclose(upper, y)
+    )
     intervals = [
         interval
-        for triangle in triangles_xy
+        for triangle in triangles_xy[reaches_y]
         if (interval := _triangle_interval_at_y(triangle, y)) is not None
     ]
     if not intervals:

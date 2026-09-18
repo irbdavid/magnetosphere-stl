@@ -265,7 +265,7 @@ class BowShockSettings:
     """Geometric extent controls for the bow-shock component."""
 
     maximum_cylindrical_radius_re: float | None = None
-    roll_stop_height_re: float = 6.0
+    roll_stop_height_re: float = 10.0
     engraving_enabled: bool = True
     engraving_height_mm: float = 10.0
     engraving_depth_mm: float = 0.5
@@ -506,9 +506,7 @@ class ProjectConfig:
     random_field_lines: RandomFieldLineSettings = RandomFieldLineSettings()
     field_line_wedges: FieldLineWedgeSettings = FieldLineWedgeSettings()
     bow_shock: BowShockSettings = BowShockSettings()
-    magnetosheath_texture: MagnetosheathTextureSettings = (
-        MagnetosheathTextureSettings()
-    )
+    magnetosheath_texture: MagnetosheathTextureSettings = MagnetosheathTextureSettings()
     convection_streamlines: ConvectionStreamlineSettings = (
         ConvectionStreamlineSettings()
     )

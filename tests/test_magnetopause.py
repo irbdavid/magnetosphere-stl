@@ -53,9 +53,7 @@ def test_magnetopause_is_watertight_and_truncated() -> None:
 
     assert mesh.is_watertight
     assert mesh.volume > 0
-    expected_tail_mm = (
-        config.resolution.tail_x_min_re * config.earth_radius_mm
-    )
+    expected_tail_mm = config.resolution.tail_x_min_re * config.earth_radius_mm
     assert mesh.bounds[0, 0] == pytest.approx(expected_tail_mm, abs=0.01)
 
 
@@ -72,14 +70,14 @@ def test_magnetopause_roll_stop_clears_bow_shock_lettering() -> None:
     )
     trimmed_config = replace(
         untrimmed_config,
-        bow_shock=BowShockSettings(roll_stop_height_re=6.0),
+        bow_shock=BowShockSettings(roll_stop_height_re=10.0),
     )
     untrimmed = MagnetopauseGenerator().generate(untrimmed_config)["magnetopause"]
     trimmed = MagnetopauseGenerator().generate(trimmed_config)["magnetopause"]
     bow_shock = BowShockGenerator().generate(trimmed_config)["bow_shock"]
 
     assert magnetopause_roll_stop_height_re(untrimmed_config) == 1.0
-    assert magnetopause_roll_stop_height_re(trimmed_config) == 7.0
+    assert magnetopause_roll_stop_height_re(trimmed_config) == 11.0
     assert trimmed.bounds[0, 2] == pytest.approx(
         untrimmed.bounds[0, 2] + 6.0 * trimmed_config.earth_radius_mm,
         abs=0.02,
@@ -223,9 +221,7 @@ def test_overlapping_tube_cutters_are_unioned_after_clipping() -> None:
         PeelSettings(enabled=True, boundary_center_clock_deg=50.0),
     ],
 )
-def test_non_default_magnetopause_peel_skips_planar_grooves(
-    monkeypatch, peel
-) -> None:
+def test_non_default_magnetopause_peel_skips_planar_grooves(monkeypatch, peel) -> None:
     config = ProjectConfig(
         peel=peel,
         convection_streamlines=ConvectionStreamlineSettings(enabled=True),
@@ -269,9 +265,7 @@ def test_kelvin_helmholtz_waves_cover_both_flanks_and_leave_tail_fixed() -> None
 
     assert displacement[dawn].max() > 0.1
     assert displacement[dusk].max() > 0.1
-    assert displacement[dawn].max() == pytest.approx(
-        displacement[dusk].max(), rel=0.02
-    )
+    assert displacement[dawn].max() == pytest.approx(displacement[dusk].max(), rel=0.02)
     assert np.allclose(
         deformed[tail_start : tail_start + tail_count],
         vertices[tail_start : tail_start + tail_count],
@@ -279,15 +273,11 @@ def test_kelvin_helmholtz_waves_cover_both_flanks_and_leave_tail_fixed() -> None
 
 
 def test_kelvin_helmholtz_default_amplitude_is_thirty_percent_larger() -> None:
-    assert KelvinHelmholtzSettings().maximum_amplitude_re == pytest.approx(
-        0.7 * 1.3
-    )
+    assert KelvinHelmholtzSettings().maximum_amplitude_re == pytest.approx(0.7 * 1.3)
 
 
 def test_kelvin_helmholtz_run_retains_unperturbed_surface() -> None:
-    config = ProjectConfig(
-        kelvin_helmholtz=KelvinHelmholtzSettings(enabled=True)
-    )
+    config = ProjectConfig(kelvin_helmholtz=KelvinHelmholtzSettings(enabled=True))
 
     assert MagnetopauseGenerator().output_names(config) == (
         "magnetopause",

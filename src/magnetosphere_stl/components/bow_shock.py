@@ -293,16 +293,16 @@ def _load_texture_heightmap(image_path: str) -> np.ndarray:
     if scale <= 0.0:
         raise ValueError(f"texture image has no usable contrast: {path}")
     normalized = (luminance - minimum) / scale
-    return np.rot90(normalized)
+    return normalized
 
 
 def _sample_texture_height_re(
     heightmap: np.ndarray,
     x_re: np.ndarray,
-    transverse_re: np.ndarray,
+    y_re: np.ndarray,
     config: ProjectConfig,
 ) -> np.ndarray:
-    """Sample the image, stretching its X scale progressively downstream."""
+    """Project image columns onto GSM X and rows onto GSM Y."""
 
     settings = config.magnetosheath_texture
     x_max_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
@@ -314,12 +314,11 @@ def _sample_texture_height_re(
     else:
         image_x = np.log1p((stretch - 1.0) * downstream) / log(stretch)
 
-    image_y = np.clip(
-        transverse_re / bow_shock_clip_radius_re(config), 0.0, 1.0
-    )
+    y_extent_re = bow_shock_clip_radius_re(config)
+    image_y = np.clip((y_re + y_extent_re) / (2.0 * y_extent_re), 0.0, 1.0)
     coordinates = np.vstack(
         (
-            image_y * (heightmap.shape[0] - 1),
+            (1.0 - image_y) * (heightmap.shape[0] - 1),
             (1.0 - image_x) * (heightmap.shape[1] - 1),
         )
     )
@@ -415,28 +414,26 @@ def _apply_magnetosheath_texture(
     textured = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     points_re = np.asarray(textured.vertices) / config.earth_radius_mm
     heightmap = _load_texture_heightmap(settings.image_path)
-    lower_z_re = float(textured.bounds[0, 2] / config.earth_radius_mm)
+    # lower_z_re = float(textured.bounds[0, 2] / config.earth_radius_mm)
     retained_center = (peel.bow_shock_center_clock_deg + 180.0) * pi / 180.0
     retained_half = (360.0 - peel.bow_shock_opening_deg) * pi / 360.0
 
     for face_index, angle in enumerate(
         (retained_center - retained_half, retained_center + retained_half)
     ):
-        radial = np.asarray((cos(angle), sin(angle)))
         angular = np.asarray((-sin(angle), cos(angle)))
         outward = -angular if face_index == 0 else angular
         selected = _radial_cut_face_vertex_indices(textured.vertices, angle)
         if len(selected) == 0:
             continue
         selected_points = points_re[selected]
-        transverse_re = selected_points[:, 1:3] @ radial
         height_re = _sample_texture_height_re(
             heightmap,
             selected_points[:, 0],
-            transverse_re,
+            selected_points[:, 1],
             config,
         )
-        height_re *= _texture_fade_re(selected_points, lower_z_re, config)
+        # height_re *= _texture_fade_re(selected_points, lower_z_re, config)
         textured.vertices[selected, 1:3] += (
             height_re[:, None] * outward * config.earth_radius_mm
         )

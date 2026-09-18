@@ -308,6 +308,17 @@ def test_magnetosheath_texture_image_is_normalized_and_bounded() -> None:
     assert np.ptp(height) > 0.5 * config.magnetosheath_texture.amplitude_re
 
 
+def test_magnetosheath_texture_loader_preserves_image_orientation(monkeypatch) -> None:
+    pixels = np.asarray(((0, 64, 128), (128, 192, 255)), dtype=np.uint8)
+    monkeypatch.setattr(bow_shock_component, "imread", lambda path: pixels)
+
+    heightmap = _load_texture_heightmap("unused.png")
+
+    assert heightmap.shape == pixels.shape
+    assert heightmap[0, 0] == pytest.approx(0.0)
+    assert heightmap[-1, -1] == pytest.approx(1.0)
+
+
 def test_magnetosheath_texture_stretches_progressively_downstream() -> None:
     config = _coarse_config(
         magnetosheath_texture=MagnetosheathTextureSettings(
@@ -346,6 +357,27 @@ def test_magnetosheath_texture_spans_nose_to_tail() -> None:
 
     assert samples[0] == pytest.approx(0.0)
     assert samples[1] == pytest.approx(config.magnetosheath_texture.amplitude_re)
+
+
+def test_magnetosheath_texture_projects_image_axes_onto_gsm_xy() -> None:
+    config = _coarse_config(
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=True, downstream_stretch=1.0
+        )
+    )
+    heightmap = np.asarray(((0.1, 0.2), (0.3, 0.4)))
+    x_min_re = config.resolution.tail_x_min_re
+    x_max_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
+    y_extent_re = bow_shock_clip_radius_re(config)
+
+    samples = _sample_texture_height_re(
+        heightmap,
+        np.asarray((x_min_re, x_max_re, x_min_re, x_max_re)),
+        np.asarray((y_extent_re, y_extent_re, -y_extent_re, -y_extent_re)),
+        config,
+    )
+
+    assert samples == pytest.approx((0.1, 0.2, 0.3, 0.4))
 
 
 def test_magnetosheath_cut_face_selection_reaches_downstream_edge() -> None:
@@ -394,7 +426,9 @@ def test_magnetosheath_texture_fades_inside_magnetopause() -> None:
     assert fade[1] > 0.0
 
 
-def test_magnetosheath_texture_keeps_bow_shock_watertight(tmp_path) -> None:
+def test_magnetosheath_texture_keeps_bow_shock_watertight(
+    tmp_path, monkeypatch
+) -> None:
     config = _coarse_config(
         peel=PeelSettings(enabled=True),
         magnetosheath_texture=MagnetosheathTextureSettings(
@@ -408,6 +442,11 @@ def test_magnetosheath_texture_keeps_bow_shock_watertight(tmp_path) -> None:
         config.peel.bow_shock_opening_deg,
         config.peel.bow_shock_center_clock_deg,
         axis="x",
+    )
+    monkeypatch.setattr(
+        bow_shock_component,
+        "_texture_fade_re",
+        lambda *args: pytest.fail("boundary fade should be disabled"),
     )
 
     textured = _apply_magnetosheath_texture(planar, config)

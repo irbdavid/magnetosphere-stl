@@ -34,7 +34,7 @@ def test_defaults_enables_standard_features_and_default_output(monkeypatch) -> N
     assert config.random_field_lines.enabled
     assert config.random_field_lines.tube_diameter_mm == 5.0
     assert config.polar_field_lines.angular_spacing_deg == 2.0
-    assert config.bow_shock.roll_stop_height_re == 6.0
+    assert config.bow_shock.roll_stop_height_re == 10.0
     assert config.bow_shock.engraving_height_mm == 10.0
     assert not config.quick_test_print
     assert not config.kelvin_helmholtz.enabled
@@ -221,9 +221,7 @@ def test_only_convection_selects_and_enables_generator(monkeypatch, tmp_path) ->
     assert not config.kelvin_helmholtz.enabled
     assert not config.peel.enabled
     assert len(generators) == 1
-    assert generators[0].output_names(config) == (
-        "equatorial_convection_streamlines",
-    )
+    assert generators[0].output_names(config) == ("equatorial_convection_streamlines",)
 
 
 def test_only_current_sheet_selects_and_enables_generator(
