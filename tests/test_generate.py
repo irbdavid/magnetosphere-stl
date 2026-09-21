@@ -6,6 +6,7 @@ import trimesh
 
 from magnetosphere_stl import (
     FieldLineTubeSettings,
+    LShellSettings,
     MeshResolution,
     PeelSettings,
     ProjectConfig,
@@ -30,6 +31,24 @@ class SphereGenerator:
         }
 
 
+@dataclass
+class QuickTestGenerator:
+    def output_names(self, config: ProjectConfig) -> tuple[str, ...]:
+        return ("retained", "omitted", "open_surface")
+
+    def generate(self, config: ProjectConfig) -> dict[str, trimesh.Trimesh]:
+        omitted = trimesh.creation.icosphere(radius=1.0)
+        omitted.apply_translation((0.0, -10.0, 0.0))
+        open_surface = trimesh.creation.icosphere(radius=10.0)
+        open_surface.update_faces(range(len(open_surface.faces) - 1))
+        open_surface.remove_unreferenced_vertices()
+        return {
+            "retained": trimesh.creation.icosphere(radius=10.0),
+            "omitted": omitted,
+            "open_surface": open_surface,
+        }
+
+
 def test_generate_all_exports_component_and_manifest(tmp_path) -> None:
     config = ProjectConfig(
         solar_wind=SolarWindConditions(dynamic_pressure_npa=3.5),
@@ -46,6 +65,45 @@ def test_generate_all_exports_component_and_manifest(tmp_path) -> None:
     assert manifest["config"]["solar_wind"]["dynamic_pressure_npa"] == 3.5
     assert manifest["config"]["resolution"]["target_edge_length_re"] == 0.04
     assert manifest["components"] == ["test_component.stl"]
+
+
+def test_existing_stls_outside_run_manifest_are_reported(tmp_path, capsys) -> None:
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    stale_file = output_dir / "old_component.stl"
+    stale_file.write_bytes(b"old")
+
+    generate_all(ProjectConfig(), output_dir, generators=[SphereGenerator()])
+
+    assert stale_file.read_bytes() == b"old"
+    assert "old_component.stl" in capsys.readouterr().out
+
+
+def test_quick_test_print_removes_below_either_y_or_z_boundary(tmp_path) -> None:
+    config = ProjectConfig(earth_radius_mm=1.0, quick_test_print=True)
+
+    result = generate_all(
+        config,
+        tmp_path / "quick",
+        generators=[QuickTestGenerator()],
+    )
+
+    assert [path.name for path in result.component_files] == [
+        "retained.stl",
+        "open_surface.stl",
+    ]
+    retained = trimesh.load_mesh(result.component_files[0], process=True)
+    assert retained.is_volume
+    assert retained.bounds[0, 1] == pytest.approx(-2.0)
+    assert retained.bounds[0, 2] == pytest.approx(-4.0)
+    assert not (result.output_dir / "omitted.stl").exists()
+    open_surface = trimesh.load_mesh(result.output_dir / "open_surface.stl")
+    assert not open_surface.is_watertight
+    assert open_surface.bounds[0, 1] == pytest.approx(-2.0)
+    assert open_surface.bounds[0, 2] == pytest.approx(-4.0)
+    manifest = json.loads(result.manifest_file.read_text())
+    assert manifest["config"]["quick_test_print"] is True
+    assert manifest["components"] == ["retained.stl", "open_surface.stl"]
 
 
 def test_generate_all_protects_existing_outputs(tmp_path) -> None:
@@ -82,15 +140,18 @@ def test_l_shell_artifacts_bypass_export_stage_geometric_peeling() -> None:
     assert _peel_angle_for_artifact("l_shell_9_field_lines", unpeeled) == 0.0
 
 
-def test_generation_api_suppresses_l_shells_in_random_mode(
+def test_generation_api_keeps_l_shells_in_random_mode(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setattr(
         LShellGenerator,
         "generate",
-        lambda self, config: pytest.fail("L-shell tracing must be suppressed"),
+        lambda self, config: {
+            "l_shell_2": trimesh.creation.icosphere(radius=1.0)
+        },
     )
     config = ProjectConfig(
+        l_shells=LShellSettings(values=(2.0,)),
         random_field_lines=RandomFieldLineSettings(enabled=True)
     )
 
@@ -100,4 +161,7 @@ def test_generation_api_suppresses_l_shells_in_random_mode(
         generators=(LShellGenerator(), SphereGenerator()),
     )
 
-    assert [path.name for path in result.component_files] == ["test_component.stl"]
+    assert [path.name for path in result.component_files] == [
+        "l_shell_2.stl",
+        "test_component.stl",
+    ]

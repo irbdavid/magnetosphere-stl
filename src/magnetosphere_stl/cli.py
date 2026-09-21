@@ -10,11 +10,13 @@ from magnetosphere_stl.components.bow_shock import bow_shock_clip_radius_re
 from magnetosphere_stl.config import (
     BowShockSettings,
     ConvectionStreamlineSettings,
+    CurrentSheetSettings,
     FieldLineTubeSettings,
     FieldLineWedgeSettings,
     FieldModel,
     KelvinHelmholtzSettings,
     LShellSettings,
+    MagnetosheathTextureSettings,
     MeshResolution,
     PeelSettings,
     PolarFieldLineSettings,
@@ -107,15 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--defaults",
         action="store_true",
         help=(
-            "generate every standard and optional component using ProjectConfig "
-            "defaults and, unless overridden, output/default"
+            "generate the standard cutaway with random field lines, excluding "
+            "L-shells unless requested, in output/default"
         ),
     )
     preset_group.add_argument(
         "--defaults-high",
         action="store_true",
         help=(
-            "generate the complete default component set for a high-storm "
+            "generate the default component set for a high-storm "
             "scenario with 50 nPa dynamic pressure and -20 nT IMF Bz and, "
             "unless overridden, output/default-high"
         ),
@@ -125,6 +127,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         choices=tuple(COMPONENT_GENERATORS),
         help="generate only this component group; repeat to select several",
+    )
+    parser.add_argument(
+        "--quick-test-print",
+        action="store_true",
+        help=(
+            "remove geometry where Y < -2 RE or Z < -4 RE from each component"
+        ),
     )
     parser.add_argument("--dynamic-pressure", type=float, default=2.0, metavar="NPA")
     parser.add_argument("--dst", type=float, default=-10.0, metavar="NT")
@@ -137,7 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=FieldModel,
         default=FieldModel.T96,
     )
-    parser.add_argument("--earth-radius-mm", type=float, default=10.0)
+    parser.add_argument(
+        "--earth-radius-mm",
+        type=float,
+        default=ProjectConfig().earth_radius_mm,
+    )
     parser.add_argument("--minimum-wall-mm", type=float, default=1.2)
     parser.add_argument("--epoch-utc", default="2020-03-20T12:00:00+00:00")
     parser.add_argument("--target-edge-re", type=float, default=0.25)
@@ -182,6 +195,37 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=bow_shock_defaults.engraving_depth_mm,
     )
+    texture_defaults = MagnetosheathTextureSettings()
+    parser.add_argument(
+        "--magnetosheath-texture",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="add image-derived relief to the exposed bow-shock cut faces",
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-image",
+        default=texture_defaults.image_path,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-amplitude-re",
+        type=float,
+        default=texture_defaults.amplitude_re,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-grid-step-re",
+        type=float,
+        default=texture_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-downstream-stretch",
+        type=float,
+        default=texture_defaults.downstream_stretch,
+    )
+    parser.add_argument(
+        "--magnetosheath-texture-boundary-fade-re",
+        type=float,
+        default=texture_defaults.boundary_fade_re,
+    )
     convection_defaults = ConvectionStreamlineSettings()
     parser.add_argument(
         "--convection-streamlines",
@@ -198,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--convection-grid-step-re",
         type=float,
         default=convection_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--convection-minimum-spacing-re",
+        type=float,
+        default=convection_defaults.minimum_spacing_re,
     )
     parser.add_argument(
         "--convection-domain-level-count",
@@ -223,6 +272,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--corotation-potential-kv",
         type=float,
         default=convection_defaults.corotation_potential_kv,
+    )
+    sheet_defaults = CurrentSheetSettings()
+    parser.add_argument(
+        "--current-sheet",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export a coarse B-dot-r zero surface for review",
+    )
+    parser.add_argument(
+        "--current-sheet-grid-step-re",
+        type=float,
+        default=sheet_defaults.grid_step_re,
+    )
+    parser.add_argument(
+        "--current-sheet-search-half-height-re",
+        type=float,
+        default=sheet_defaults.search_half_height_re,
+    )
+    parser.add_argument(
+        "--current-sheet-search-step-re",
+        type=float,
+        default=sheet_defaults.search_step_re,
     )
     polar_defaults = PolarFieldLineSettings()
     parser.add_argument(
@@ -310,6 +381,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tube_defaults = FieldLineTubeSettings()
     parser.add_argument(
+        "--tube-groove-minimum-l",
+        type=float,
+        default=tube_defaults.groove_minimum_l,
+        help="groove L-shells above this threshold (default: 6)",
+    )
+    parser.add_argument(
         "--tube-azimuth-spacing-deg",
         type=float,
         default=tube_defaults.azimuth_spacing_deg,
@@ -350,7 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "trace randomly spaced seeds from the displayed Z=0, Y>=0 "
+            "trace randomly spaced seeds from the displayed Z=0, Y>=2 RE "
             "magnetosphere half-plane"
         ),
     )
@@ -358,13 +435,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--random-field-line-spacing-re",
         type=float,
         default=random_defaults.minimum_seed_spacing_re,
-        help="minimum distance between accepted random seeds (default: 6 RE)",
+        help="minimum distance between accepted random seeds (default: 6.6 RE)",
     )
     parser.add_argument(
         "--random-field-line-seed",
         type=int,
         default=random_defaults.random_seed,
         help="random-number seed for reproducible sampling (default: 0)",
+    )
+    parser.add_argument(
+        "--random-field-line-tube-diameter-mm",
+        type=float,
+        default=random_defaults.tube_diameter_mm,
+    )
+    parser.add_argument(
+        "--random-field-line-tube-sides",
+        type=int,
+        default=random_defaults.tube_sides,
+    )
+    parser.add_argument(
+        "--random-field-line-path-step-mm",
+        type=float,
+        default=random_defaults.path_step_mm,
     )
     parser.add_argument(
         "--kelvin-helmholtz",
@@ -459,7 +551,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = set(args.only or ())
     field_line_tubes_enabled = _optional_feature_enabled(
         args.field_line_tubes,
-        defaults=using_defaults,
+        defaults=False,
     )
     convection_enabled = _optional_feature_enabled(
         args.convection_streamlines,
@@ -478,12 +570,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     random_field_lines_enabled = _optional_feature_enabled(
         args.random_field_lines,
-        defaults=False,
+        defaults=using_defaults,
         selected="random-field-lines" in selected,
     )
-    if random_field_lines_enabled:
-        field_line_tubes_enabled = False
-        wedge_enabled = False
     kelvin_helmholtz_enabled = _optional_feature_enabled(
         args.kelvin_helmholtz,
         defaults=False,
@@ -591,6 +680,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
                 grooves_enabled=args.field_line_grooves,
+                groove_minimum_l=args.tube_groove_minimum_l,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,
@@ -604,6 +694,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 enabled=random_field_lines_enabled,
                 minimum_seed_spacing_re=args.random_field_line_spacing_re,
                 random_seed=args.random_field_line_seed,
+                tube_diameter_mm=args.random_field_line_tube_diameter_mm,
+                tube_sides=args.random_field_line_tube_sides,
+                path_step_mm=args.random_field_line_path_step_mm,
             ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
@@ -617,6 +710,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_radii_re=args.convection_seed_radii_re,
                 domain_level_count=args.convection_domain_level_count,
                 grid_step_re=args.convection_grid_step_re,
+                minimum_spacing_re=args.convection_minimum_spacing_re,
                 tube_diameter_mm=args.convection_tube_diameter_mm,
                 tube_sides=args.convection_tube_sides,
                 path_step_mm=args.convection_path_step_mm,
@@ -693,6 +787,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             field_line_tubes=FieldLineTubeSettings(
                 enabled=field_line_tubes_enabled,
                 grooves_enabled=args.field_line_grooves,
+                groove_minimum_l=args.tube_groove_minimum_l,
                 azimuth_spacing_deg=args.tube_azimuth_spacing_deg,
                 dense_spacing_start_l=args.tube_dense_spacing_start_l,
                 dense_spacing_end_l=args.tube_dense_spacing_end_l,
@@ -706,6 +801,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 enabled=random_field_lines_enabled,
                 minimum_seed_spacing_re=args.random_field_line_spacing_re,
                 random_seed=args.random_field_line_seed,
+                tube_diameter_mm=args.random_field_line_tube_diameter_mm,
+                tube_sides=args.random_field_line_tube_sides,
+                path_step_mm=args.random_field_line_path_step_mm,
             ),
             bow_shock=BowShockSettings(
                 maximum_cylindrical_radius_re=args.bow_shock_max_radius_re,
@@ -719,6 +817,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_radii_re=args.convection_seed_radii_re,
                 domain_level_count=args.convection_domain_level_count,
                 grid_step_re=args.convection_grid_step_re,
+                minimum_spacing_re=args.convection_minimum_spacing_re,
                 tube_diameter_mm=args.convection_tube_diameter_mm,
                 tube_sides=args.convection_tube_sides,
                 path_step_mm=args.convection_path_step_mm,
@@ -760,20 +859,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             minimum_wall_mm=args.minimum_wall_mm,
         )
         output_dir = args.output
+    config = replace(
+        config,
+        quick_test_print=args.quick_test_print,
+        magnetosheath_texture=MagnetosheathTextureSettings(
+            enabled=_optional_feature_enabled(
+                args.magnetosheath_texture,
+                defaults=False,
+            ),
+            image_path=args.magnetosheath_texture_image,
+            amplitude_re=args.magnetosheath_texture_amplitude_re,
+            grid_step_re=args.magnetosheath_texture_grid_step_re,
+            boundary_fade_re=args.magnetosheath_texture_boundary_fade_re,
+            downstream_stretch=args.magnetosheath_texture_downstream_stretch,
+        ),
+        current_sheet=CurrentSheetSettings(
+            enabled=_optional_feature_enabled(
+                args.current_sheet,
+                defaults=False,
+                selected="current-sheet" in selected,
+            ),
+            grid_step_re=args.current_sheet_grid_step_re,
+            search_half_height_re=args.current_sheet_search_half_height_re,
+            search_step_re=args.current_sheet_search_step_re,
+        ),
+    )
     _print_run_configuration(config, output_dir, overwrite=args.overwrite)
     try:
-        if args.only or random_field_lines_enabled:
-            generator_names = list(
-                dict.fromkeys(args.only or tuple(COMPONENT_GENERATORS))
-            )
-            if random_field_lines_enabled:
-                generator_names = [
-                    name
-                    for name in generator_names
-                    if name not in {"field-line-wedges", "l-shells"}
-                ]
-                if "random-field-lines" not in generator_names:
-                    generator_names.append("random-field-lines")
+        if args.only:
+            generator_names = list(dict.fromkeys(args.only))
             selected_generators = tuple(
                 COMPONENT_GENERATORS[name] for name in generator_names
             )
@@ -781,6 +895,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 output_dir,
                 generators=selected_generators,
+                overwrite=args.overwrite,
+            )
+        elif using_defaults:
+            preset_generators = tuple(
+                generator
+                for name, generator in COMPONENT_GENERATORS.items()
+                if name != "l-shells" or args.field_line_tubes is True
+            )
+            result = generate_all(
+                config,
+                output_dir,
+                generators=preset_generators,
                 overwrite=args.overwrite,
             )
         else:

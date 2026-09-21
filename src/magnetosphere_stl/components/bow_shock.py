@@ -2,20 +2,25 @@
 
 import warnings
 from dataclasses import dataclass
-from math import cos, pi, sin, sqrt
+from math import cos, log, pi, sin, sqrt
+from pathlib import Path
 
 import numpy as np
 import trimesh
+from scipy.ndimage import map_coordinates
+from skimage.io import imread
 
+from magnetosphere_stl.components.magnetopause import solid_magnetopause_envelope
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.axisymmetric import connect_rings, segments_for_circle
+from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
 from magnetosphere_stl.geometry.text import engrave_bottom_strip
 from magnetosphere_stl.models.jelinek import (
     JELINEK_LAMBDA,
     bow_shock_rho_re,
     bow_shock_standoff_re,
 )
-from magnetosphere_stl.models.shue import shue_transverse_radius_at_x
+from magnetosphere_stl.models.shue import shue_parameters, shue_transverse_radius_at_x
 
 
 def bow_shock_clip_radius_re(config: ProjectConfig) -> float:
@@ -234,6 +239,219 @@ def solid_bow_shock_envelope(config: ProjectConfig) -> trimesh.Trimesh:
     return _apply_roll_stop(_clip_to_tail_cylinder(mesh, config), config)
 
 
+def solid_magnetosheath_envelope(config: ProjectConfig) -> trimesh.Trimesh:
+    """Build the bow-shock volume with the complete magnetopause removed."""
+
+    magnetosheath = trimesh.boolean.difference(
+        [
+            solid_bow_shock_envelope(config),
+            solid_magnetopause_envelope(config),
+        ],
+        engine="manifold",
+        check_volume=True,
+    )
+    magnetosheath.process(validate=True)
+    trimesh.repair.fix_normals(magnetosheath)
+    if magnetosheath.is_empty:
+        raise RuntimeError("magnetopause removed the entire bow-shock volume")
+    if not magnetosheath.is_volume or magnetosheath.body_count != 1:
+        raise RuntimeError(
+            "magnetopause subtraction did not produce one closed magnetosheath volume"
+        )
+    return magnetosheath
+
+
+def _smoothstep(value: np.ndarray) -> np.ndarray:
+    clipped = np.clip(value, 0.0, 1.0)
+    return clipped * clipped * (3.0 - 2.0 * clipped)
+
+
+def _load_texture_heightmap(image_path: str) -> np.ndarray:
+    """Load an image as a height map normalized across the range [0, 1]."""
+
+    path = Path(image_path).expanduser()
+    if not path.is_absolute() and not path.is_file():
+        repository_path = Path(__file__).resolve().parents[3] / path
+        if repository_path.is_file():
+            path = repository_path
+    pixels = np.asarray(imread(path))
+    if pixels.ndim == 2:
+        luminance = pixels.astype(float)
+    elif pixels.ndim == 3 and pixels.shape[2] >= 3:
+        rgb = pixels[..., :3].astype(float)
+        luminance = rgb @ np.asarray((0.2126, 0.7152, 0.0722))
+    else:
+        raise ValueError(f"texture image must be grayscale or RGB: {path}")
+
+    if np.issubdtype(pixels.dtype, np.integer):
+        luminance /= np.iinfo(pixels.dtype).max
+    elif not np.all(np.isfinite(luminance)):
+        raise ValueError(f"texture image contains non-finite values: {path}")
+
+    minimum = float(np.min(luminance))
+    scale = float(np.max(luminance)) - minimum
+    if scale <= 0.0:
+        raise ValueError(f"texture image has no usable contrast: {path}")
+    normalized = (luminance - minimum) / scale
+    return normalized
+
+
+def _sample_texture_height_re(
+    heightmap: np.ndarray,
+    x_re: np.ndarray,
+    y_re: np.ndarray,
+    config: ProjectConfig,
+) -> np.ndarray:
+    """Project image columns onto GSM X and rows onto GSM Y."""
+
+    settings = config.magnetosheath_texture
+    x_max_re = bow_shock_standoff_re(config.solar_wind.dynamic_pressure_npa)
+    x_min_re = config.resolution.tail_x_min_re
+    downstream = np.clip((x_max_re - x_re) / (x_max_re - x_min_re), 0.0, 1.0)
+    stretch = settings.downstream_stretch
+    if stretch == 1.0:
+        image_x = downstream
+    else:
+        image_x = np.log1p((stretch - 1.0) * downstream) / log(stretch)
+
+    y_extent_re = bow_shock_clip_radius_re(config)
+    image_y = np.clip((y_re + y_extent_re) / (2.0 * y_extent_re), 0.0, 1.0)
+    coordinates = np.vstack(
+        (
+            (1.0 - image_y) * (heightmap.shape[0] - 1),
+            (1.0 - image_x) * (heightmap.shape[1] - 1),
+        )
+    )
+    sampled = map_coordinates(heightmap, coordinates, order=1, mode="nearest")
+    return settings.amplitude_re * sampled
+
+
+def _texture_fade_re(
+    points_re: np.ndarray,
+    lower_z_re: float,
+    config: ProjectConfig,
+) -> np.ndarray:
+    """Fade relief at all borders of the visible magnetosheath patch."""
+
+    settings = config.magnetosheath_texture
+    x_re = points_re[:, 0]
+    transverse_re = np.linalg.norm(points_re[:, 1:3], axis=1)
+    radius_re = np.linalg.norm(points_re, axis=1)
+    cosine = np.divide(
+        x_re,
+        radius_re,
+        out=np.ones_like(radius_re),
+        where=radius_re > 0,
+    )
+    r0_re, alpha = shue_parameters(
+        config.solar_wind.dynamic_pressure_npa,
+        config.solar_wind.imf_bz_nt,
+    )
+    denominator = np.maximum(1.0 + cosine, 1e-12)
+    magnetopause_radius_re = r0_re * (2.0 / denominator) ** alpha
+    magnetopause_clearance_re = radius_re - magnetopause_radius_re
+
+    standoff_re = bow_shock_standoff_re(
+        config.solar_wind.dynamic_pressure_npa
+    )
+    coefficient = JELINEK_LAMBDA**2 / (4.0 * standoff_re)
+    bow_shock_x_re = standoff_re - coefficient * transverse_re**2
+    outer_clearance_re = np.minimum(
+        bow_shock_x_re - x_re,
+        bow_shock_clip_radius_re(config) - transverse_re,
+    )
+    roll_stop_clearance_re = points_re[:, 2] - lower_z_re
+
+    fade_width = settings.boundary_fade_re
+    return (
+        _smoothstep(magnetopause_clearance_re / fade_width)
+        * _smoothstep(outer_clearance_re / fade_width)
+        * _smoothstep(roll_stop_clearance_re / fade_width)
+    )
+
+
+def _radial_cut_face_vertex_indices(
+    vertices_mm: np.ndarray,
+    angle: float,
+) -> np.ndarray:
+    """Find cut-face vertices despite float noise from the peel boolean."""
+
+    radial = np.asarray((cos(angle), sin(angle)))
+    angular = np.asarray((-sin(angle), cos(angle)))
+    transverse = vertices_mm[:, 1:3]
+    tolerance_mm = max(1e-5, float(np.ptp(vertices_mm, axis=0).max()) * 1e-7)
+    return np.flatnonzero(
+        (np.abs(transverse @ angular) <= tolerance_mm)
+        & (transverse @ radial >= 0.0)
+    )
+
+
+def _apply_magnetosheath_texture(
+    mesh: trimesh.Trimesh,
+    config: ProjectConfig,
+) -> trimesh.Trimesh:
+    """Displace the two bow-shock cut faces with magnetosheath wave relief."""
+
+    settings = config.magnetosheath_texture
+    if not settings.enabled:
+        return mesh
+    peel = config.peel
+    if peel.bow_shock_opening_deg <= 180.0:
+        warnings.warn(
+            "magnetosheath texture requires a bow-shock opening above 180 degrees; "
+            "exporting the planar cut",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return mesh
+
+    vertices, faces = trimesh.remesh.subdivide_to_size(
+        mesh.vertices,
+        mesh.faces,
+        max_edge=settings.grid_step_re * config.earth_radius_mm,
+        max_iter=8,
+    )
+    textured = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    points_re = np.asarray(textured.vertices) / config.earth_radius_mm
+    heightmap = _load_texture_heightmap(settings.image_path)
+    # lower_z_re = float(textured.bounds[0, 2] / config.earth_radius_mm)
+    retained_center = (peel.bow_shock_center_clock_deg + 180.0) * pi / 180.0
+    retained_half = (360.0 - peel.bow_shock_opening_deg) * pi / 360.0
+
+    for face_index, angle in enumerate(
+        (retained_center - retained_half, retained_center + retained_half)
+    ):
+        angular = np.asarray((-sin(angle), cos(angle)))
+        outward = -angular if face_index == 0 else angular
+        selected = _radial_cut_face_vertex_indices(textured.vertices, angle)
+        if len(selected) == 0:
+            continue
+        selected_points = points_re[selected]
+        height_re = _sample_texture_height_re(
+            heightmap,
+            selected_points[:, 0],
+            selected_points[:, 1],
+            config,
+        )
+        # height_re *= _texture_fade_re(selected_points, lower_z_re, config)
+        textured.vertices[selected, 1:3] += (
+            height_re[:, None] * outward * config.earth_radius_mm
+        )
+
+    # STL stores float32 vertices. Quantize before validation so vertices which
+    # will coincide after export are merged while the topology can still be checked.
+    textured = trimesh.Trimesh(
+        vertices=np.asarray(textured.vertices, dtype=np.float32).astype(float),
+        faces=textured.faces,
+        process=True,
+        validate=True,
+    )
+    trimesh.repair.fix_normals(textured)
+    if not textured.is_volume:
+        raise RuntimeError("magnetosheath texture produced a non-volume bow shock")
+    return textured
+
+
 @dataclass(frozen=True, slots=True)
 class BowShockGenerator:
     """Generate a pressure-dependent bow-shock shell."""
@@ -250,7 +468,22 @@ class BowShockGenerator:
     ) -> trimesh.Trimesh:
         if name != self.name:
             raise ValueError(f"unexpected bow-shock artifact: {name}")
-        return solid_bow_shock_envelope(config)
+        return solid_magnetosheath_envelope(config)
+
+    def peel_artifact(
+        self, config: ProjectConfig, name: str, mesh: trimesh.Trimesh
+    ) -> trimesh.Trimesh:
+        """Peel the bow shock, then texture its exposed magnetosheath faces."""
+
+        if name != self.name:
+            raise ValueError(f"unexpected bow-shock artifact: {name}")
+        peeled = subtract_azimuthal_wedge(
+            mesh,
+            config.peel.bow_shock_opening_deg,
+            config.peel.bow_shock_center_clock_deg,
+            axis="x",
+        )
+        return _apply_magnetosheath_texture(peeled, config)
 
     def finish_artifact(
         self, config: ProjectConfig, name: str, mesh: trimesh.Trimesh

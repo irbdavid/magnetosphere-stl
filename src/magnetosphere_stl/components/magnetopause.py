@@ -12,12 +12,18 @@ import trimesh
 from scipy.optimize import brentq
 
 from magnetosphere_stl.components.convection import convection_streamline_mesh
+from magnetosphere_stl.components.current_sheet import (
+    CurrentSheetHeightMap,
+    current_sheet_height_map,
+)
 from magnetosphere_stl.components.polar_field_lines import polar_field_line_mesh
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.axisymmetric import connect_rings, segments_for_circle
+from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
 from magnetosphere_stl.models.shue import shue_parameters, shue_radius
 
 MAGNETOPAUSE_ROLL_STOP_CLEARANCE_RE = 1.0
+GROOVE_EDGE_CLEARANCE_MM = 0.01
 
 
 def _tail_angle(r0_re: float, alpha: float, tail_x_min_re: float) -> float:
@@ -291,25 +297,159 @@ def solid_magnetopause_envelope(config: ProjectConfig) -> trimesh.Trimesh:
     return _apply_roll_stop(mesh, config)
 
 
+def _solid_above_current_sheet(
+    magnetopause: trimesh.Trimesh,
+    height_map: CurrentSheetHeightMap,
+    earth_radius_mm: float,
+) -> trimesh.Trimesh:
+    """Build a closed cutter above the sheet on its positive-Y side."""
+
+    grid_step_re = max(
+        float(np.diff(height_map.x_axis_re).max()),
+        float(np.diff(height_map.y_axis_re).max()),
+    )
+    x_axis_re = np.concatenate(
+        (
+            [height_map.x_axis_re[0] - grid_step_re],
+            height_map.x_axis_re,
+            [height_map.x_axis_re[-1] + grid_step_re],
+        )
+    )
+    positive_y = height_map.y_axis_re[height_map.y_axis_re > 0.0]
+    y_axis_re = np.concatenate(
+        ([0.0], positive_y, [height_map.y_axis_re[-1] + grid_step_re])
+    )
+    x_grid, y_grid = np.meshgrid(x_axis_re, y_axis_re)
+    points_xy_re = np.column_stack((x_grid.ravel(), y_grid.ravel()))
+    bottom_z_mm = (
+        height_map.heights_at_re(points_xy_re) * earth_radius_mm
+    )
+    bottom = np.column_stack(
+        (
+            points_xy_re[:, 0] * earth_radius_mm,
+            points_xy_re[:, 1] * earth_radius_mm,
+            bottom_z_mm,
+        )
+    )
+    top = bottom.copy()
+    top[:, 2] = magnetopause.bounds[1, 2] + earth_radius_mm
+
+    row_count = len(y_axis_re)
+    column_count = len(x_axis_re)
+    layer_size = len(bottom)
+    faces: list[tuple[int, int, int]] = []
+    for row in range(row_count - 1):
+        for column in range(column_count - 1):
+            lower_left = row * column_count + column
+            lower_right = lower_left + 1
+            upper_left = lower_left + column_count
+            upper_right = upper_left + 1
+            faces.extend(
+                (
+                    (lower_left, upper_right, lower_right),
+                    (lower_left, upper_left, upper_right),
+                    (
+                        layer_size + lower_left,
+                        layer_size + lower_right,
+                        layer_size + upper_right,
+                    ),
+                    (
+                        layer_size + lower_left,
+                        layer_size + upper_right,
+                        layer_size + upper_left,
+                    ),
+                )
+            )
+
+    boundary = list(range(column_count))
+    boundary.extend(
+        row * column_count + column_count - 1
+        for row in range(1, row_count)
+    )
+    boundary.extend(
+        (row_count - 1) * column_count + column
+        for column in range(column_count - 2, -1, -1)
+    )
+    boundary.extend(
+        row * column_count for row in range(row_count - 2, 0, -1)
+    )
+    for start, end in zip(boundary, boundary[1:] + boundary[:1], strict=True):
+        faces.append((start, end, layer_size + end))
+        faces.append((start, layer_size + end, layer_size + start))
+
+    cutter = trimesh.Trimesh(
+        vertices=np.vstack((bottom, top)),
+        faces=np.asarray(faces),
+        process=True,
+    )
+    if cutter.volume < 0:
+        cutter.invert()
+    if not cutter.is_volume:
+        raise RuntimeError("current-sheet peel cutter is not a closed volume")
+    return cutter
+
+
+def _peel_magnetopause(
+    magnetopause: trimesh.Trimesh,
+    config: ProjectConfig,
+) -> trimesh.Trimesh:
+    """Use the current sheet for the standard cut, or the configured planar wedge."""
+
+    peel = config.peel
+    standard_opening = (
+        np.isclose(peel.magnetopause_opening_deg, 90.0)
+        and np.isclose(peel.boundary_center_clock_deg, 45.0)
+    )
+    if not standard_opening:
+        return subtract_azimuthal_wedge(
+            magnetopause,
+            peel.magnetopause_opening_deg,
+            peel.boundary_center_clock_deg,
+            axis="x",
+        )
+
+    cutter = _solid_above_current_sheet(
+        magnetopause,
+        current_sheet_height_map(config),
+        config.earth_radius_mm,
+    )
+    peeled = trimesh.boolean.difference(
+        [magnetopause, cutter], engine="manifold", check_volume=True
+    )
+    peeled.process(validate=True)
+    trimesh.repair.fix_normals(peeled)
+    if not peeled.is_volume:
+        raise RuntimeError("current-sheet magnetopause peel is not a closed volume")
+    return peeled
+
+
 def _clip_cutter_to_positive_halfspace(
     mesh: trimesh.Trimesh,
     axis: int,
+    minimum: float = 0.0,
 ) -> trimesh.Trimesh:
     """Return the closed part of a cutter on or above an axis-aligned plane."""
 
-    if mesh.is_empty or mesh.bounds[1, axis] <= 0.0:
+    if mesh.is_empty or mesh.bounds[1, axis] <= minimum:
         return trimesh.Trimesh()
-    if mesh.bounds[0, axis] >= 0.0:
+    if mesh.bounds[0, axis] >= minimum:
         return mesh.copy()
 
     margin = max(float(mesh.extents.max()), 1.0)
     lower = mesh.bounds[0] - margin
     upper = mesh.bounds[1] + margin
-    lower[axis] = 0.0
+    lower[axis] = minimum
     keep_box = trimesh.creation.box(bounds=np.vstack((lower, upper)))
     clipped = trimesh.boolean.intersection(
         [mesh, keep_box], engine="manifold", check_volume=True
     )
+    bodies = tuple(clipped.split(only_watertight=True))
+    if len(bodies) > 1:
+        clipped = trimesh.boolean.union(
+            bodies,
+            engine="manifold",
+            check_volume=True,
+        )
     clipped.process(validate=True)
     trimesh.repair.fix_normals(clipped, multibody=True)
     if not clipped.is_volume:
@@ -321,13 +461,15 @@ def _groove_peeled_magnetopause(
     mesh: trimesh.Trimesh,
     config: ProjectConfig,
 ) -> trimesh.Trimesh:
-    """Cut enabled planar tube sets into the matching magnetopause cut faces."""
+    """Cut enabled tube sets into their matching magnetopause cut faces."""
 
     cutters: list[trimesh.Trimesh] = []
     if config.convection_streamlines.enabled:
         cutters.append(
             _clip_cutter_to_positive_halfspace(
-                convection_streamline_mesh(config), axis=1
+                convection_streamline_mesh(config),
+                axis=1,
+                minimum=GROOVE_EDGE_CLEARANCE_MM,
             )
         )
     if config.polar_field_lines.enabled:
@@ -385,13 +527,25 @@ class MagnetopauseGenerator:
             raise ValueError(f"unexpected magnetopause artifact: {name}")
         return solid_magnetopause_envelope(config)
 
+    def peel_artifact(
+        self,
+        config: ProjectConfig,
+        name: str,
+        mesh: trimesh.Trimesh,
+    ) -> trimesh.Trimesh:
+        """Cut the magnetopause along the modeled magnetic-equator surface."""
+
+        if name != self.name:
+            raise ValueError(f"unexpected magnetopause artifact: {name}")
+        return _peel_magnetopause(mesh, config)
+
     def finish_artifact(
         self,
         config: ProjectConfig,
         name: str,
         mesh: trimesh.Trimesh,
     ) -> trimesh.Trimesh:
-        """Groove planar tube sets into the two default magnetopause cut faces."""
+        """Groove tube sets into the two default magnetopause cut faces."""
 
         if name != self.name or not config.peel.enabled:
             return mesh
@@ -408,7 +562,8 @@ class MagnetopauseGenerator:
         ):
             warnings.warn(
                 "skipping convection and polar-fan grooves because the peeled "
-                "magnetopause faces are not the X-Y and X-Z planes; grooving "
+                "magnetopause does not use the standard current-sheet/X-Z cut; "
+                "grooving "
                 "requires a 90 degree opening centered at 45 degrees",
                 RuntimeWarning,
                 stacklevel=2,

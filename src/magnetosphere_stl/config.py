@@ -3,10 +3,13 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from math import sqrt
+from math import isfinite, sqrt
 
 MINIMUM_TUBE_DIAMETER_MM = 2.0
-DEFAULT_TUBE_DIAMETER_MM = 4.0
+DEFAULT_TUBE_DIAMETER_MM = 2.0
+DEFAULT_RANDOM_FIELD_LINE_DIAMETER_MM = 5.0
+# At the default 2 nPa pressure, this makes X=-50 to the bow-shock nose 250 mm.
+DEFAULT_EARTH_RADIUS_MM = 3.9362803681679717
 
 
 class FieldModel(StrEnum):
@@ -126,6 +129,7 @@ class FieldLineTubeSettings:
 
     enabled: bool = False
     grooves_enabled: bool = True
+    groove_minimum_l: float = 6.0
     azimuth_spacing_deg: float = 10.0
     dense_spacing_start_l: float = 9.5
     dense_spacing_end_l: float = 60.0
@@ -136,6 +140,8 @@ class FieldLineTubeSettings:
     peel_with_l_shells: bool = True
 
     def __post_init__(self) -> None:
+        if not isfinite(self.groove_minimum_l) or self.groove_minimum_l <= 0:
+            raise ValueError("minimum grooved L-shell must be finite and positive")
         if not 0 < self.azimuth_spacing_deg <= 360:
             raise ValueError("tube azimuth spacing must be in (0, 360] degrees")
         line_count = 360.0 / self.azimuth_spacing_deg
@@ -186,15 +192,23 @@ class FieldLineTubeSettings:
 
         return 360.0 / self.line_count_for_l(l_value)
 
+    def grooves_shell(self, l_value: float) -> bool:
+        """Cut channels only on shells above the configured L threshold."""
+
+        return self.grooves_enabled and l_value > self.groove_minimum_l
+
 
 @dataclass(frozen=True, slots=True)
 class RandomFieldLineSettings:
     """Poisson-like seed sampling on the displayed GSM equatorial half-plane."""
 
     enabled: bool = False
-    minimum_seed_spacing_re: float = 6.0
+    minimum_seed_spacing_re: float = 6.6
     random_seed: int = 0
     maximum_failed_attempts: int = 5_000
+    tube_diameter_mm: float = DEFAULT_RANDOM_FIELD_LINE_DIAMETER_MM
+    tube_sides: int = 8
+    path_step_mm: float = 2.0
 
     def __post_init__(self) -> None:
         if self.minimum_seed_spacing_re <= 0:
@@ -203,6 +217,12 @@ class RandomFieldLineSettings:
             raise ValueError("random field-line seed must not be negative")
         if self.maximum_failed_attempts < 1:
             raise ValueError("random field-line failed-attempt limit must be positive")
+        if self.tube_diameter_mm < MINIMUM_TUBE_DIAMETER_MM:
+            raise ValueError("random field-line tube diameter must be at least 2 mm")
+        if self.tube_sides < 6:
+            raise ValueError("random field-line tubes require at least six sides")
+        if self.path_step_mm <= 0:
+            raise ValueError("random field-line path step must be greater than zero")
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,9 +265,9 @@ class BowShockSettings:
     """Geometric extent controls for the bow-shock component."""
 
     maximum_cylindrical_radius_re: float | None = None
-    roll_stop_height_re: float = 6.0
+    roll_stop_height_re: float = 10.0
     engraving_enabled: bool = True
-    engraving_height_mm: float = 20.0
+    engraving_height_mm: float = 10.0
     engraving_depth_mm: float = 0.5
 
     def __post_init__(self) -> None:
@@ -262,6 +282,33 @@ class BowShockSettings:
             raise ValueError("bow-shock engraving height must be greater than zero")
         if self.engraving_depth_mm <= 0:
             raise ValueError("bow-shock engraving depth must be greater than zero")
+
+
+@dataclass(frozen=True, slots=True)
+class MagnetosheathTextureSettings:
+    """Image-derived relief on the exposed bow-shock cut faces."""
+
+    enabled: bool = False
+    image_path: str = "resources/wave-texture.png"
+    amplitude_re: float = 1.0
+    grid_step_re: float = 1.0
+    boundary_fade_re: float = 2.0
+    downstream_stretch: float = 2.0
+
+    def __post_init__(self) -> None:
+        positive_values = (
+            self.amplitude_re,
+            self.grid_step_re,
+            self.boundary_fade_re,
+        )
+        if any(not isfinite(value) or value <= 0 for value in positive_values):
+            raise ValueError(
+                "magnetosheath texture dimensions must be finite and positive"
+            )
+        if not self.image_path.strip():
+            raise ValueError("magnetosheath texture image path must not be empty")
+        if not isfinite(self.downstream_stretch) or self.downstream_stretch < 1.0:
+            raise ValueError("magnetosheath downstream stretch must be at least one")
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +330,7 @@ class ConvectionStreamlineSettings:
     )
     domain_level_count: int = 12
     grid_step_re: float = 0.10
+    minimum_spacing_re: float = 0.50
     tube_diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
     tube_sides: int = 8
     path_step_mm: float = 2.0
@@ -297,6 +345,8 @@ class ConvectionStreamlineSettings:
             raise ValueError("convection domain level count must be at least two")
         if self.grid_step_re <= 0:
             raise ValueError("convection grid step must be greater than zero")
+        if self.minimum_spacing_re <= 0:
+            raise ValueError("convection minimum spacing must be greater than zero")
         if self.tube_diameter_mm < MINIMUM_TUBE_DIAMETER_MM:
             raise ValueError("convection tube diameter must be at least 2 mm")
         if self.tube_sides < 6:
@@ -305,6 +355,24 @@ class ConvectionStreamlineSettings:
             raise ValueError("convection path step must be greater than zero")
         if self.corotation_potential_kv <= 0:
             raise ValueError("corotation potential magnitude must be greater than zero")
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentSheetSettings:
+    """Coarse B-dot-r zero surface for visual review, without thickness."""
+
+    enabled: bool = False
+    grid_step_re: float = 1.0
+    search_half_height_re: float = 15.0
+    search_step_re: float = 1.0
+
+    def __post_init__(self) -> None:
+        for name in ("grid_step_re", "search_half_height_re", "search_step_re"):
+            value = getattr(self, name)
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"current-sheet {name} must be finite and positive")
+        if self.search_step_re > self.search_half_height_re:
+            raise ValueError("current-sheet search step must not exceed half-height")
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,15 +506,18 @@ class ProjectConfig:
     random_field_lines: RandomFieldLineSettings = RandomFieldLineSettings()
     field_line_wedges: FieldLineWedgeSettings = FieldLineWedgeSettings()
     bow_shock: BowShockSettings = BowShockSettings()
+    magnetosheath_texture: MagnetosheathTextureSettings = MagnetosheathTextureSettings()
     convection_streamlines: ConvectionStreamlineSettings = (
         ConvectionStreamlineSettings()
     )
+    current_sheet: CurrentSheetSettings = CurrentSheetSettings()
     polar_field_lines: PolarFieldLineSettings = PolarFieldLineSettings()
     peel: PeelSettings = PeelSettings()
     epoch_utc: str = "2020-03-20T12:00:00+00:00"
-    earth_radius_mm: float = 10.0
+    earth_radius_mm: float = DEFAULT_EARTH_RADIUS_MM
     minimum_wall_mm: float = 1.2
     coordinate_system: str = "GSM"
+    quick_test_print: bool = False
 
     def __post_init__(self) -> None:
         epoch = datetime.fromisoformat(self.epoch_utc)
