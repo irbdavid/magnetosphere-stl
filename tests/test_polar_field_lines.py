@@ -39,6 +39,18 @@ def test_polar_seeds_span_northern_x_z_meridian() -> None:
     )
 
 
+def test_polar_seeds_follow_dipole_tilt() -> None:
+    config = _coarse_config()
+    tilt = np.deg2rad(-30.0)
+
+    seeds = polar_seed_points_re(config, dipole_tilt_rad=tilt)
+    seed_angles = np.rad2deg(np.arctan2(seeds[:, 0], seeds[:, 2]))
+
+    assert seed_angles == pytest.approx([-31.0, -30.0, -29.0])
+    assert np.allclose(seeds[:, 1], 0.0)
+    assert np.linalg.norm(seeds, axis=1) == pytest.approx(1.01)
+
+
 def test_default_polar_fan_uses_two_degree_spacing() -> None:
     settings = PolarFieldLineSettings()
 

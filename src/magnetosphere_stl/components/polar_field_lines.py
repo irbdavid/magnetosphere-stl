@@ -11,12 +11,17 @@ from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.tubes import resample_polyline, tube_mesh
 from magnetosphere_stl.models.tsyganenko import (
     prepare_model,
+    prepared_dipole_tilt_rad,
     trace_sampled_field_half,
 )
 
 
-def polar_seed_points_re(config: ProjectConfig) -> np.ndarray:
-    """Return northern surface seeds ordered from sunward to tailward."""
+def polar_seed_points_re(
+    config: ProjectConfig,
+    *,
+    dipole_tilt_rad: float = 0.0,
+) -> np.ndarray:
+    """Return northern surface seeds centered on the modeled magnetic pole."""
 
     settings = config.polar_field_lines
     offsets = np.linspace(
@@ -25,7 +30,7 @@ def polar_seed_points_re(config: ProjectConfig) -> np.ndarray:
         settings.line_count,
     )
     radius = config.l_shells.footpoint_radius_re + settings.seed_offset_re
-    angles = offsets * pi / 180.0
+    angles = dipole_tilt_rad + offsets * pi / 180.0
     return np.column_stack(
         (
             radius * np.sin(angles),
@@ -41,8 +46,9 @@ def _cached_polar_field_line_mesh(config: ProjectConfig) -> trimesh.Trimesh:
 
     settings = config.polar_field_lines
     model_name, parameters = prepare_model(config)
+    dipole_tilt_rad = prepared_dipole_tilt_rad()
     meshes: list[trimesh.Trimesh] = []
-    for seed in polar_seed_points_re(config):
+    for seed in polar_seed_points_re(config, dipole_tilt_rad=dipole_tilt_rad):
         half = trace_sampled_field_half(
             seed,
             -1.0,

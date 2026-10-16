@@ -301,8 +301,11 @@ def _solid_above_current_sheet(
     magnetopause: trimesh.Trimesh,
     height_map: CurrentSheetHeightMap,
     earth_radius_mm: float,
+    *,
+    positive_y_only: bool = True,
+    minimum_clearance_mm: float = 0.0,
 ) -> trimesh.Trimesh:
-    """Build a closed cutter above the sheet on its positive-Y side."""
+    """Build a closed cutter above the sheet, optionally only at positive Y."""
 
     grid_step_re = max(
         float(np.diff(height_map.x_axis_re).max()),
@@ -315,14 +318,24 @@ def _solid_above_current_sheet(
             [height_map.x_axis_re[-1] + grid_step_re],
         )
     )
-    positive_y = height_map.y_axis_re[height_map.y_axis_re > 0.0]
-    y_axis_re = np.concatenate(
-        ([0.0], positive_y, [height_map.y_axis_re[-1] + grid_step_re])
-    )
+    if positive_y_only:
+        positive_y = height_map.y_axis_re[height_map.y_axis_re > 0.0]
+        y_axis_re = np.concatenate(
+            ([0.0], positive_y, [height_map.y_axis_re[-1] + grid_step_re])
+        )
+    else:
+        y_axis_re = np.concatenate(
+            (
+                [height_map.y_axis_re[0] - grid_step_re],
+                height_map.y_axis_re,
+                [height_map.y_axis_re[-1] + grid_step_re],
+            )
+        )
     x_grid, y_grid = np.meshgrid(x_axis_re, y_axis_re)
     points_xy_re = np.column_stack((x_grid.ravel(), y_grid.ravel()))
     bottom_z_mm = (
         height_map.heights_at_re(points_xy_re) * earth_radius_mm
+        + minimum_clearance_mm
     )
     bottom = np.column_stack(
         (
@@ -457,6 +470,44 @@ def _clip_cutter_to_positive_halfspace(
     return clipped
 
 
+def _clip_cutter_above_current_sheet(
+    mesh: trimesh.Trimesh,
+    height_map: CurrentSheetHeightMap,
+    earth_radius_mm: float,
+    minimum_clearance_mm: float = 0.0,
+) -> trimesh.Trimesh:
+    """Return the closed part of a cutter above the curved current sheet."""
+
+    if mesh.is_empty:
+        return trimesh.Trimesh()
+    keep_solid = _solid_above_current_sheet(
+        mesh,
+        height_map,
+        earth_radius_mm,
+        positive_y_only=False,
+        minimum_clearance_mm=minimum_clearance_mm,
+    )
+    clipped = trimesh.boolean.intersection(
+        [mesh, keep_solid], engine="manifold", check_volume=True
+    )
+    if clipped.is_empty:
+        return clipped
+    bodies = tuple(clipped.split(only_watertight=True))
+    if len(bodies) > 1:
+        clipped = trimesh.boolean.union(
+            bodies,
+            engine="manifold",
+            check_volume=True,
+        )
+    clipped.process(validate=True)
+    trimesh.repair.fix_normals(clipped, multibody=True)
+    if not clipped.is_volume:
+        raise RuntimeError(
+            "current-sheet tube clipping did not produce a closed volume"
+        )
+    return clipped
+
+
 def _groove_peeled_magnetopause(
     mesh: trimesh.Trimesh,
     config: ProjectConfig,
@@ -474,8 +525,11 @@ def _groove_peeled_magnetopause(
         )
     if config.polar_field_lines.enabled:
         cutters.append(
-            _clip_cutter_to_positive_halfspace(
-                polar_field_line_mesh(config), axis=2
+            _clip_cutter_above_current_sheet(
+                polar_field_line_mesh(config),
+                current_sheet_height_map(config),
+                config.earth_radius_mm,
+                minimum_clearance_mm=GROOVE_EDGE_CLEARANCE_MM,
             )
         )
     cutters = [cutter for cutter in cutters if not cutter.is_empty]

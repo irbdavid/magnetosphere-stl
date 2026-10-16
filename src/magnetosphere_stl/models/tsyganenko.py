@@ -74,6 +74,12 @@ def prepare_model(config: ProjectConfig) -> tuple[str, int | np.ndarray]:
     return config.field_model.value.lower(), _model_parameters(config)
 
 
+def prepared_dipole_tilt_rad() -> float:
+    """Return the GSM dipole tilt established by the latest model preparation."""
+
+    return float(_geopack().psi)
+
+
 def _bisect_crossing(
     start: np.ndarray,
     end: np.ndarray,

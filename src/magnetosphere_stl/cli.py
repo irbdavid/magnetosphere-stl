@@ -32,6 +32,12 @@ from magnetosphere_stl.generate import (
 
 HIGH_STORM_DYNAMIC_PRESSURE_NPA = 50.0
 HIGH_STORM_IMF_BZ_NT = -20.0
+WINTER_SOLSTICE_EPOCH_UTC = "2020-12-21T04:00:00+00:00"
+WINTER_DYNAMIC_PRESSURE_NPA = 3.0
+WINTER_DST_NT = -30.0
+WINTER_IMF_BY_NT = 10.0
+WINTER_IMF_BZ_NT = -8.0
+WINTER_KP = 4.0
 
 
 def _l_shell_values(value: str) -> tuple[float, ...]:
@@ -120,6 +126,15 @@ def build_parser() -> argparse.ArgumentParser:
             "generate the default component set for a high-storm "
             "scenario with 50 nPa dynamic pressure and -20 nT IMF Bz and, "
             "unless overridden, output/default-high"
+        ),
+    )
+    preset_group.add_argument(
+        "--defaults-winter",
+        action="store_true",
+        help=(
+            "generate the default component set for an illustrative northern "
+            "winter-solstice scenario with stronger dipole tilt and IMF By "
+            "twist and, unless overridden, output/default-winter"
         ),
     )
     parser.add_argument(
@@ -544,7 +559,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    using_defaults = args.defaults or args.defaults_high
+    using_defaults = args.defaults or args.defaults_high or args.defaults_winter
     if args.output is None and not using_defaults:
         parser.error("--output is required unless a --defaults preset is used")
 
@@ -652,7 +667,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         changed = [name for name, value, default in supplied_values if value != default]
         if changed:
-            preset_flag = "--defaults-high" if args.defaults_high else "--defaults"
+            if args.defaults_high:
+                preset_flag = "--defaults-high"
+            elif args.defaults_winter:
+                preset_flag = "--defaults-winter"
+            else:
+                preset_flag = "--defaults"
             parser.error(
                 f"{preset_flag} cannot be combined with overrides: "
                 f"{', '.join(changed)}"
@@ -665,6 +685,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     dynamic_pressure_npa=HIGH_STORM_DYNAMIC_PRESSURE_NPA,
                     imf_bz_nt=HIGH_STORM_IMF_BZ_NT,
                 ),
+            )
+        elif args.defaults_winter:
+            config = replace(
+                config,
+                solar_wind=SolarWindConditions(
+                    dynamic_pressure_npa=WINTER_DYNAMIC_PRESSURE_NPA,
+                    dst_nt=WINTER_DST_NT,
+                    imf_by_nt=WINTER_IMF_BY_NT,
+                    imf_bz_nt=WINTER_IMF_BZ_NT,
+                    kp=WINTER_KP,
+                ),
+                epoch_utc=WINTER_SOLSTICE_EPOCH_UTC,
             )
         config = replace(
             config,
@@ -748,9 +780,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 l_shell_opening_table=args.l_shell_peel_table,
             ),
         )
-        default_output = (
-            "output/default-high" if args.defaults_high else "output/default"
-        )
+        if args.defaults_high:
+            default_output = "output/default-high"
+        elif args.defaults_winter:
+            default_output = "output/default-winter"
+        else:
+            default_output = "output/default"
         output_dir = args.output or Path(default_output)
     else:
         config = ProjectConfig(

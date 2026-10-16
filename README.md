@@ -169,8 +169,10 @@ uv run magnetosphere-stl --defaults --field-line-tubes --overwrite
 
 Random field lines are enabled by the default presets and use
 deterministic rejection sampling inside the finite Shue magnetopause on the exposed
-GSM equatorial half-plane (`Z=0`, `Y>=2 RE`), excluding Earth and leaving clearance
-from the X-Z cut plane. Accepted seeds are at least 6.6 RE apart by default;
+magnetic-equator half-surface (`Y>=2 RE`), excluding Earth and leaving clearance
+from the X-Z cut plane. Candidate X/Y positions are draped onto the same `B dot r = 0`
+height map used by the magnetopause cut and convection grooves before field tracing.
+Accepted seeds are at least 6.6 RE apart by default;
 dart throwing continues until the remaining gaps reject
 5,000 consecutive candidates. Change the separation with
 `--random-field-line-spacing-re` and select another reproducible layout with
@@ -273,6 +275,10 @@ uv run magnetosphere-stl --defaults
 # (50 nPa dynamic pressure and southward IMF Bz = -20 nT):
 uv run magnetosphere-stl --defaults-high
 
+# Generate an illustrative northern winter-solstice configuration with a
+# strongly displaced current sheet and additional IMF-By twist:
+uv run magnetosphere-stl --defaults-winter
+
 # Repeat the default development run, replacing its generated files:
 uv run magnetosphere-stl --defaults --overwrite
 
@@ -296,6 +302,13 @@ Kelvin–Helmholtz waves are also off in `--defaults` runs and can be enabled wi
 `--no-peel`,
 `--no-convection-streamlines`, or `--no-polar-field-lines`. `--only` can still limit
 generation to selected component groups without changing the shared physical setup.
+
+The `--defaults-winter` preset uses `2020-12-21T04:00:00+00:00`, when the modeled
+GSM dipole tilt is about -33 degrees, together with 3 nPa dynamic pressure,
+Dst = -30 nT, IMF By = +10 nT, IMF Bz = -8 nT, and Kp = 4. These are illustrative
+moderately disturbed inputs selected to make the seasonal displacement and
+dawn-dusk twist legible in the model; they are not a reconstruction of one observed
+solar-wind interval. Its output directory is `output/default-winter`.
 
 The Python entry point is `magnetosphere_stl.generate_all(config, output_dir)`.
 Every component in a run receives the same immutable `ProjectConfig`. Each run
@@ -355,9 +368,10 @@ magnetopause.
 When the convection streamlines or polar fan are enabled, their tube geometry is also
 subtracted from the matching face of `magnetopause.stl`: convection paths form grooves
 in the curved magnetic-equator face and polar field lines form grooves in the X–Z
-face. Only the Y ≥ 0 half of the convection cutter and the Z ≥ 0 half of the polar
-cutter are used, preventing their opposite halves from leaving internal surfaces in
-the magnetopause. Their standalone tube STLs are still exported in full for assembly.
+face. Only the Y ≥ 0 half of the convection cutter is used. The polar cutter is kept
+where Z lies above the same curved current-sheet height used for peeling, allowing
+the X–Z grooves to extend below GSM Z=0 when the sheet is seasonally displaced.
+Their standalone tube STLs are still exported in full for assembly.
 This alignment is defined only for the default 90° magnetopause opening centered at
 45°. Changing either peel value skips these grooves with a warning.
 
@@ -494,7 +508,9 @@ potential. See [Volland (1973)](https://doi.org/10.1029/JA078i001p00171) and the
 
 Add `--polar-field-lines` to export `polar_field_lines.stl`. By default, 31 field
 lines start just above Earth's northern surface at 2° intervals spanning ±30° from
-the +Z pole in the GSM X–Z meridian. Each line follows the configured
+the epoch-dependent geomagnetic dipole axis in the GSM X–Z meridian. The seed arc
+therefore shifts tailward during northern winter and sunward during northern summer,
+rather than remaining centered on GSM +Z. Each line follows the configured
 Tsyganenko/IGRF field outward until it reaches Earth, the magnetopause, or the
 configured negative-X boundary. The traced coordinates are then placed exactly in
 the X–Z display plane so the result can serve as a clear meridional visual element.

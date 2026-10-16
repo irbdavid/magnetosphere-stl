@@ -70,6 +70,32 @@ def test_defaults_high_uses_storm_conditions_and_separate_output(monkeypatch) ->
     assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
 
 
+def test_defaults_winter_uses_tilted_twisted_conditions(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured.update(config=config, output_dir=output_dir, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults-winter"]) == 0
+    config = captured["config"]
+    assert config.epoch_utc == "2020-12-21T04:00:00+00:00"
+    assert config.solar_wind.dynamic_pressure_npa == 3.0
+    assert config.solar_wind.dst_nt == -30.0
+    assert config.solar_wind.imf_by_nt == 10.0
+    assert config.solar_wind.imf_bz_nt == -8.0
+    assert config.solar_wind.kp == 4.0
+    assert config.convection_streamlines.enabled
+    assert config.polar_field_lines.enabled
+    assert config.random_field_lines.enabled
+    assert config.peel.enabled
+    assert captured["output_dir"] == Path("output/default-winter")
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
+
+
 def test_defaults_can_explicitly_include_l_shells_and_field_line_tubes(
     monkeypatch,
 ) -> None:
@@ -124,6 +150,10 @@ def test_only_under_defaults_does_not_add_random_field_lines(monkeypatch) -> Non
 def test_default_presets_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
         cli.main(["--defaults", "--defaults-high"])
+    with pytest.raises(SystemExit):
+        cli.main(["--defaults", "--defaults-winter"])
+    with pytest.raises(SystemExit):
+        cli.main(["--defaults-high", "--defaults-winter"])
 
 
 def test_output_is_required_for_non_default_run() -> None:

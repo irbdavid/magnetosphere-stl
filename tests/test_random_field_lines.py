@@ -34,6 +34,17 @@ def _sampling_config(**settings) -> ProjectConfig:
     )
 
 
+def _constant_height_map(height_re: float = 0.0) -> CurrentSheetHeightMap:
+    axis = np.asarray((-100.0, 100.0))
+    heights = np.full((2, 2), height_re)
+    return CurrentSheetHeightMap(
+        x_axis_re=axis,
+        y_axis_re=axis,
+        heights_re=heights,
+        directly_solved=np.ones((2, 2), dtype=bool),
+    )
+
+
 def test_default_random_seed_spacing_is_6_6_re() -> None:
     settings = RandomFieldLineSettings()
     assert settings.minimum_seed_spacing_re == 6.6
@@ -41,7 +52,9 @@ def test_default_random_seed_spacing_is_6_6_re() -> None:
 
 
 def test_default_sampling_has_fewer_seeds_with_cut_plane_clearance() -> None:
-    seeds = sample_equatorial_half_plane_seeds(ProjectConfig())
+    seeds = sample_equatorial_half_plane_seeds(
+        ProjectConfig(), _constant_height_map()
+    )
 
     assert 20 <= len(seeds) <= 25
     assert np.all(seeds[:, 1] >= 2.0)
@@ -50,13 +63,14 @@ def test_default_sampling_has_fewer_seeds_with_cut_plane_clearance() -> None:
 def test_random_seeds_are_reproducible_spaced_and_inside_display_half_plane() -> None:
     config = _sampling_config(minimum_seed_spacing_re=4.0, random_seed=17)
 
-    first = sample_equatorial_half_plane_seeds(config)
-    second = sample_equatorial_half_plane_seeds(config)
+    height_map = _constant_height_map(-0.5)
+    first = sample_equatorial_half_plane_seeds(config, height_map)
+    second = sample_equatorial_half_plane_seeds(config, height_map)
 
     assert len(first) > 1
     assert first == pytest.approx(second)
     assert np.all(first[:, 1] >= 2.0)
-    assert np.all(first[:, 2] == 0.0)
+    assert np.allclose(first[:, 2], -0.5)
     assert np.all(np.linalg.norm(first, axis=1) > 1.0)
     assert all(
         inside_shue_magnetopause(

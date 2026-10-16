@@ -6,7 +6,10 @@ from io import BytesIO
 import numpy as np
 import trimesh
 
-from magnetosphere_stl.components.current_sheet import current_sheet_height_map
+from magnetosphere_stl.components.current_sheet import (
+    CurrentSheetHeightMap,
+    current_sheet_height_map,
+)
 from magnetosphere_stl.components.earth import EarthGenerator
 from magnetosphere_stl.components.magnetopause import (
     _solid_above_current_sheet,
@@ -29,8 +32,11 @@ from magnetosphere_stl.models.tsyganenko import (
 CUT_FACE_CLEARANCES_MM = (0.5, 1.0, 1.5, 2.0)
 
 
-def sample_equatorial_half_plane_seeds(config: ProjectConfig) -> np.ndarray:
-    """Dart-throw seeds inside the finite Shue domain at Z=0 and Y>=2 RE."""
+def sample_equatorial_half_plane_seeds(
+    config: ProjectConfig,
+    height_map: CurrentSheetHeightMap | None = None,
+) -> np.ndarray:
+    """Dart-throw seeds on the magnetic-equator surface at Y>=2 RE."""
 
     settings = config.random_field_lines
     conditions = config.solar_wind
@@ -76,7 +82,29 @@ def sample_equatorial_half_plane_seeds(config: ProjectConfig) -> np.ndarray:
             failed_attempts = 0
         else:
             failed_attempts += 1
-    return np.asarray(seeds)
+    if not seeds:
+        return np.empty((0, 3))
+
+    seeds_array = np.asarray(seeds)
+    if height_map is None:
+        height_map = current_sheet_height_map(config)
+    seeds_array[:, 2] = height_map.heights_at_re(seeds_array[:, :2])
+
+    # The initial X/Y sampling uses the equatorial Shue footprint. Discard the
+    # uncommon edge point whose displaced Z coordinate falls outside the full
+    # three-dimensional boundary.
+    usable = np.asarray(
+        [
+            np.linalg.norm(seed) > config.l_shells.footpoint_radius_re
+            and inside_shue_magnetopause(
+                seed,
+                conditions.dynamic_pressure_npa,
+                conditions.imf_bz_nt,
+            )
+            for seed in seeds_array
+        ]
+    )
+    return seeds_array[usable]
 
 
 def _ordered_trace_points(halves) -> np.ndarray | None:

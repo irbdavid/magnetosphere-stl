@@ -20,6 +20,7 @@ from magnetosphere_stl.components.current_sheet import CurrentSheetHeightMap
 from magnetosphere_stl.components.magnetopause import (
     MagnetopauseGenerator,
     _apply_kelvin_helmholtz,
+    _clip_cutter_above_current_sheet,
     _clip_cutter_to_positive_halfspace,
     _groove_peeled_magnetopause,
     _peel_magnetopause,
@@ -171,6 +172,11 @@ def test_planar_tube_sets_are_cut_into_peeled_magnetopause(monkeypatch) -> None:
     monkeypatch.setattr(
         magnetopause_component, "polar_field_line_mesh", lambda config: xz_cutter
     )
+    monkeypatch.setattr(
+        magnetopause_component,
+        "current_sheet_height_map",
+        lambda config: _sloping_height_map(),
+    )
     clipped_axes = []
     original_clip = _clip_cutter_to_positive_halfspace
 
@@ -188,7 +194,7 @@ def test_planar_tube_sets_are_cut_into_peeled_magnetopause(monkeypatch) -> None:
 
     assert grooved.is_volume
     assert grooved.volume < magnetopause.volume
-    assert clipped_axes == [1, 2]
+    assert clipped_axes == [1]
     assert xy_cutter.bounds[0, 1] < 0.0
     assert xz_cutter.bounds[0, 2] < 0.0
 
@@ -202,6 +208,28 @@ def test_tube_cutter_positive_halfspace_is_closed(axis) -> None:
     assert clipped.is_volume
     assert clipped.bounds[0, axis] == pytest.approx(0.0, abs=1e-9)
     assert clipped.volume == pytest.approx(cutter.volume / 2.0)
+
+
+def test_polar_tube_cutter_follows_displaced_current_sheet() -> None:
+    cutter = trimesh.creation.box(extents=(8.0, 2.0, 6.0))
+    axis = np.asarray((-6.0, 6.0))
+    height_map = CurrentSheetHeightMap(
+        x_axis_re=axis,
+        y_axis_re=axis,
+        heights_re=np.full((2, 2), -2.0),
+        directly_solved=np.ones((2, 2), dtype=bool),
+    )
+
+    clipped = _clip_cutter_above_current_sheet(
+        cutter,
+        height_map,
+        earth_radius_mm=1.0,
+    )
+
+    assert clipped.is_volume
+    assert clipped.bounds[0, 2] == pytest.approx(-2.0)
+    assert clipped.bounds[1, 2] == pytest.approx(3.0)
+    assert clipped.volume == pytest.approx(80.0)
 
 
 def test_overlapping_tube_cutters_are_unioned_after_clipping() -> None:
