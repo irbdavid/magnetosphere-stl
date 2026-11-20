@@ -17,6 +17,7 @@ from magnetosphere_stl.components.current_sheet import (
     current_sheet_height_map,
 )
 from magnetosphere_stl.components.polar_field_lines import polar_field_line_mesh
+from magnetosphere_stl.components.polar_field_snippets import polar_field_snippet_mesh
 from magnetosphere_stl.config import ProjectConfig
 from magnetosphere_stl.geometry.axisymmetric import connect_rings, segments_for_circle
 from magnetosphere_stl.geometry.peel import subtract_azimuthal_wedge
@@ -487,20 +488,28 @@ def _clip_cutter_above_current_sheet(
         positive_y_only=False,
         minimum_clearance_mm=minimum_clearance_mm,
     )
-    clipped = trimesh.boolean.intersection(
-        [mesh, keep_solid], engine="manifold", check_volume=True
-    )
-    if clipped.is_empty:
-        return clipped
-    bodies = tuple(clipped.split(only_watertight=True))
-    if len(bodies) > 1:
+    retained: list[trimesh.Trimesh] = []
+    for body in mesh.split(only_watertight=True):
+        result = trimesh.boolean.intersection(
+            [body, keep_solid], engine="manifold", check_volume=True
+        )
+        if result.is_empty:
+            continue
+        result.process(validate=True)
+        trimesh.repair.fix_normals(result, multibody=True)
+        retained.extend(result.split(only_watertight=True))
+    if not retained:
+        return trimesh.Trimesh()
+    if len(retained) == 1:
+        clipped = retained[0]
+    else:
         clipped = trimesh.boolean.union(
-            bodies,
+            retained,
             engine="manifold",
             check_volume=True,
         )
-    clipped.process(validate=True)
-    trimesh.repair.fix_normals(clipped, multibody=True)
+        clipped.process(validate=True)
+        trimesh.repair.fix_normals(clipped, multibody=True)
     if not clipped.is_volume:
         raise RuntimeError(
             "current-sheet tube clipping did not produce a closed volume"
@@ -523,7 +532,9 @@ def _groove_peeled_magnetopause(
                 minimum=GROOVE_EDGE_CLEARANCE_MM,
             )
         )
-    if config.polar_field_lines.enabled:
+    if config.polar_field_snippets.enabled:
+        cutters.append(polar_field_snippet_mesh(config))
+    elif config.polar_field_lines.enabled:
         cutters.append(
             _clip_cutter_above_current_sheet(
                 polar_field_line_mesh(config),
@@ -606,6 +617,7 @@ class MagnetopauseGenerator:
         has_cutters = (
             config.convection_streamlines.enabled
             or config.polar_field_lines.enabled
+            or config.polar_field_snippets.enabled
         )
         if not has_cutters:
             return mesh

@@ -17,6 +17,7 @@ from magnetosphere_stl.components import (
     LShellGenerator,
     MagnetopauseGenerator,
     PolarFieldLineGenerator,
+    PolarFieldSnippetGenerator,
     RandomFieldLineGenerator,
 )
 from magnetosphere_stl.config import ProjectConfig
@@ -58,6 +59,7 @@ COMPONENT_GENERATORS: dict[str, ComponentGenerator] = {
     "bow-shock": BowShockGenerator(),
     "convection": ConvectionStreamlineGenerator(),
     "polar-field-lines": PolarFieldLineGenerator(),
+    "polar-field-snippets": PolarFieldSnippetGenerator(),
     "random-field-lines": RandomFieldLineGenerator(),
     "l-shells": LShellGenerator(),
 }

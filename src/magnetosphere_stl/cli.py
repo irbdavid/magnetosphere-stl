@@ -20,6 +20,7 @@ from magnetosphere_stl.config import (
     MeshResolution,
     PeelSettings,
     PolarFieldLineSettings,
+    PolarFieldSnippetSettings,
     ProjectConfig,
     RandomFieldLineSettings,
     SolarWindConditions,
@@ -38,6 +39,11 @@ WINTER_DST_NT = -30.0
 WINTER_IMF_BY_NT = 10.0
 WINTER_IMF_BZ_NT = -8.0
 WINTER_KP = 4.0
+EXTREME_DYNAMIC_PRESSURE_NPA = 20.0
+EXTREME_DST_NT = -100.0
+EXTREME_IMF_BY_NT = 15.0
+EXTREME_IMF_BZ_NT = -20.0
+EXTREME_KP = 7.0
 
 
 def _l_shell_values(value: str) -> tuple[float, ...]:
@@ -135,6 +141,16 @@ def build_parser() -> argparse.ArgumentParser:
             "generate the default component set for an illustrative northern "
             "winter-solstice scenario with stronger dipole tilt and IMF By "
             "twist and, unless overridden, output/default-winter"
+        ),
+    )
+    preset_group.add_argument(
+        "--defaults-extreme",
+        action="store_true",
+        help=(
+            "generate the default component set for an illustrative extreme "
+            "winter-solstice storm with strong compression, current-sheet "
+            "displacement, and IMF By twist and, unless overridden, "
+            "output/default-extreme"
         ),
     )
     parser.add_argument(
@@ -346,6 +362,63 @@ def build_parser() -> argparse.ArgumentParser:
         "--polar-path-step-mm",
         type=float,
         default=polar_defaults.path_step_mm,
+    )
+    snippet_defaults = PolarFieldSnippetSettings()
+    parser.add_argument(
+        "--polar-field-snippets",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="export short 3D field traces projected onto the GSM X-Z cut face",
+    )
+    parser.add_argument(
+        "--polar-snippet-spacing-re",
+        type=float,
+        default=snippet_defaults.minimum_seed_spacing_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-random-seed",
+        type=int,
+        default=snippet_defaults.random_seed,
+    )
+    parser.add_argument(
+        "--polar-snippet-max-y-re",
+        type=float,
+        default=snippet_defaults.maximum_y_displacement_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-max-half-length-re",
+        type=float,
+        default=snippet_defaults.maximum_half_length_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-min-length-re",
+        type=float,
+        default=snippet_defaults.minimum_length_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-trace-spacing-re",
+        type=float,
+        default=snippet_defaults.minimum_trace_spacing_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-trace-step-re",
+        type=float,
+        default=snippet_defaults.trace_step_re,
+    )
+    parser.add_argument(
+        "--polar-snippet-tube-diameter-mm",
+        type=float,
+        default=snippet_defaults.tube_diameter_mm,
+    )
+    parser.add_argument(
+        "--polar-snippet-tube-sides",
+        type=int,
+        default=snippet_defaults.tube_sides,
+    )
+    parser.add_argument(
+        "--polar-snippet-path-step-mm",
+        type=float,
+        default=snippet_defaults.path_step_mm,
     )
     parser.add_argument(
         "--l-shells", type=_l_shell_values, default=LShellSettings().values
@@ -559,7 +632,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    using_defaults = args.defaults or args.defaults_high or args.defaults_winter
+    using_defaults = (
+        args.defaults
+        or args.defaults_high
+        or args.defaults_winter
+        or args.defaults_extreme
+    )
     if args.output is None and not using_defaults:
         parser.error("--output is required unless a --defaults preset is used")
 
@@ -573,9 +651,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         defaults=using_defaults,
         selected="convection" in selected,
     )
+    polar_snippets_enabled = _optional_feature_enabled(
+        args.polar_field_snippets,
+        defaults=False,
+        selected="polar-field-snippets" in selected,
+    )
     polar_enabled = _optional_feature_enabled(
         args.polar_field_lines,
-        defaults=using_defaults,
+        defaults=using_defaults and not polar_snippets_enabled,
         selected="polar-field-lines" in selected,
     )
     wedge_enabled = _optional_feature_enabled(
@@ -671,6 +754,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 preset_flag = "--defaults-high"
             elif args.defaults_winter:
                 preset_flag = "--defaults-winter"
+            elif args.defaults_extreme:
+                preset_flag = "--defaults-extreme"
             else:
                 preset_flag = "--defaults"
             parser.error(
@@ -695,6 +780,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     imf_by_nt=WINTER_IMF_BY_NT,
                     imf_bz_nt=WINTER_IMF_BZ_NT,
                     kp=WINTER_KP,
+                ),
+                epoch_utc=WINTER_SOLSTICE_EPOCH_UTC,
+            )
+        elif args.defaults_extreme:
+            config = replace(
+                config,
+                solar_wind=SolarWindConditions(
+                    dynamic_pressure_npa=EXTREME_DYNAMIC_PRESSURE_NPA,
+                    dst_nt=EXTREME_DST_NT,
+                    imf_by_nt=EXTREME_IMF_BY_NT,
+                    imf_bz_nt=EXTREME_IMF_BZ_NT,
+                    kp=EXTREME_KP,
                 ),
                 epoch_utc=WINTER_SOLSTICE_EPOCH_UTC,
             )
@@ -757,6 +854,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 trace_step_re=args.polar_trace_step_re,
                 path_step_mm=args.polar_path_step_mm,
             ),
+            polar_field_snippets=PolarFieldSnippetSettings(
+                enabled=polar_snippets_enabled,
+                minimum_seed_spacing_re=args.polar_snippet_spacing_re,
+                random_seed=args.polar_snippet_random_seed,
+                maximum_y_displacement_re=args.polar_snippet_max_y_re,
+                maximum_half_length_re=args.polar_snippet_max_half_length_re,
+                minimum_length_re=args.polar_snippet_min_length_re,
+                minimum_trace_spacing_re=args.polar_snippet_trace_spacing_re,
+                trace_step_re=args.polar_snippet_trace_step_re,
+                tube_diameter_mm=args.polar_snippet_tube_diameter_mm,
+                tube_sides=args.polar_snippet_tube_sides,
+                path_step_mm=args.polar_snippet_path_step_mm,
+            ),
             kelvin_helmholtz=KelvinHelmholtzSettings(
                 enabled=kelvin_helmholtz_enabled,
                 wavelength_re=args.kh_wavelength_re,
@@ -784,6 +894,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             default_output = "output/default-high"
         elif args.defaults_winter:
             default_output = "output/default-winter"
+        elif args.defaults_extreme:
+            default_output = "output/default-extreme"
         else:
             default_output = "output/default"
         output_dir = args.output or Path(default_output)
@@ -866,6 +978,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tube_sides=args.polar_tube_sides,
                 trace_step_re=args.polar_trace_step_re,
                 path_step_mm=args.polar_path_step_mm,
+            ),
+            polar_field_snippets=PolarFieldSnippetSettings(
+                enabled=polar_snippets_enabled,
+                minimum_seed_spacing_re=args.polar_snippet_spacing_re,
+                random_seed=args.polar_snippet_random_seed,
+                maximum_y_displacement_re=args.polar_snippet_max_y_re,
+                maximum_half_length_re=args.polar_snippet_max_half_length_re,
+                minimum_length_re=args.polar_snippet_min_length_re,
+                minimum_trace_spacing_re=args.polar_snippet_trace_spacing_re,
+                trace_step_re=args.polar_snippet_trace_step_re,
+                tube_diameter_mm=args.polar_snippet_tube_diameter_mm,
+                tube_sides=args.polar_snippet_tube_sides,
+                path_step_mm=args.polar_snippet_path_step_mm,
             ),
             kelvin_helmholtz=KelvinHelmholtzSettings(
                 enabled=kelvin_helmholtz_enabled,

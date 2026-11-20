@@ -413,6 +413,47 @@ class PolarFieldLineSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class PolarFieldSnippetSettings:
+    """Short projected traces seeded across the exposed GSM X-Z cut face."""
+
+    enabled: bool = False
+    minimum_seed_spacing_re: float = 3.5
+    random_seed: int = 0
+    maximum_failed_attempts: int = 5_000
+    maximum_y_displacement_re: float = 0.5
+    maximum_half_length_re: float = 15.0
+    minimum_length_re: float = 1.0
+    minimum_trace_spacing_re: float = 0.75
+    trace_step_re: float = 0.1
+    tube_diameter_mm: float = DEFAULT_TUBE_DIAMETER_MM
+    tube_sides: int = 8
+    path_step_mm: float = 2.0
+
+    def __post_init__(self) -> None:
+        positive_values = (
+            self.minimum_seed_spacing_re,
+            self.maximum_y_displacement_re,
+            self.maximum_half_length_re,
+            self.minimum_length_re,
+            self.minimum_trace_spacing_re,
+            self.trace_step_re,
+            self.path_step_mm,
+        )
+        if any(not isfinite(value) or value <= 0 for value in positive_values):
+            raise ValueError("polar snippet distances must be finite and positive")
+        if self.minimum_length_re > 2.0 * self.maximum_half_length_re:
+            raise ValueError("polar snippet minimum length exceeds its trace limit")
+        if self.random_seed < 0:
+            raise ValueError("polar snippet random seed must not be negative")
+        if self.maximum_failed_attempts < 1:
+            raise ValueError("polar snippet failed-attempt limit must be positive")
+        if self.tube_diameter_mm < MINIMUM_TUBE_DIAMETER_MM:
+            raise ValueError("polar snippet tube diameter must be at least 2 mm")
+        if self.tube_sides < 6:
+            raise ValueError("polar snippet tubes require at least six sides")
+
+
+@dataclass(frozen=True, slots=True)
 class PeelSettings:
     """Optional export-stage azimuthal wedge removal."""
 
@@ -512,6 +553,7 @@ class ProjectConfig:
     )
     current_sheet: CurrentSheetSettings = CurrentSheetSettings()
     polar_field_lines: PolarFieldLineSettings = PolarFieldLineSettings()
+    polar_field_snippets: PolarFieldSnippetSettings = PolarFieldSnippetSettings()
     peel: PeelSettings = PeelSettings()
     epoch_utc: str = "2020-03-20T12:00:00+00:00"
     earth_radius_mm: float = DEFAULT_EARTH_RADIUS_MM

@@ -96,6 +96,62 @@ def test_defaults_winter_uses_tilted_twisted_conditions(monkeypatch) -> None:
     assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
 
 
+def test_defaults_extreme_uses_winter_storm_conditions(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured.update(config=config, output_dir=output_dir, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert cli.main(["--defaults-extreme"]) == 0
+    config = captured["config"]
+    assert config.epoch_utc == "2020-12-21T04:00:00+00:00"
+    assert config.solar_wind.dynamic_pressure_npa == 20.0
+    assert config.solar_wind.dst_nt == -100.0
+    assert config.solar_wind.imf_by_nt == 15.0
+    assert config.solar_wind.imf_bz_nt == -20.0
+    assert config.solar_wind.kp == 7.0
+    assert config.convection_streamlines.enabled
+    assert config.polar_field_lines.enabled
+    assert config.random_field_lines.enabled
+    assert config.peel.enabled
+    assert captured["output_dir"] == Path("output/default-extreme")
+    assert cli.COMPONENT_GENERATORS["l-shells"] not in captured["generators"]
+
+
+def test_polar_snippets_replace_default_fan_when_requested(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate_all(config, output_dir, *, generators=None, overwrite=False):
+        captured.update(config=config, generators=generators)
+        destination = Path(output_dir).resolve()
+        return GenerationResult(destination, (), destination / "setup.json")
+
+    monkeypatch.setattr(cli, "generate_all", fake_generate_all)
+
+    assert (
+        cli.main(
+            [
+                "--defaults-winter",
+                "--polar-field-snippets",
+                "--only",
+                "polar-field-snippets",
+            ]
+        )
+        == 0
+    )
+    config = captured["config"]
+    assert config.polar_field_snippets.enabled
+    assert config.polar_field_snippets.maximum_y_displacement_re == 0.5
+    assert not config.polar_field_lines.enabled
+    assert captured["generators"] == (
+        cli.COMPONENT_GENERATORS["polar-field-snippets"],
+    )
+
+
 def test_defaults_can_explicitly_include_l_shells_and_field_line_tubes(
     monkeypatch,
 ) -> None:
@@ -154,6 +210,8 @@ def test_default_presets_are_mutually_exclusive() -> None:
         cli.main(["--defaults", "--defaults-winter"])
     with pytest.raises(SystemExit):
         cli.main(["--defaults-high", "--defaults-winter"])
+    with pytest.raises(SystemExit):
+        cli.main(["--defaults-winter", "--defaults-extreme"])
 
 
 def test_output_is_required_for_non_default_run() -> None:

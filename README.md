@@ -235,7 +235,7 @@ uv run magnetosphere-stl --output output/field-line-wedges \
   --field-line-wedge-azimuth-spacing-deg 10
 ```
 
-The feature is not enabled by either defaults preset. It can also be added to a full
+The feature is not enabled by the default presets. It can also be added to a full
 run with `--field-line-wedges`; its default range is `8:10` at 10° spacing.
 Add `--field-line-wedge-grooves` to engrave tube-shaped channels along every traced
 inner- and outer-L boundary line used to loft each wedge. This does not create grooves
@@ -279,6 +279,9 @@ uv run magnetosphere-stl --defaults-high
 # strongly displaced current sheet and additional IMF-By twist:
 uv run magnetosphere-stl --defaults-winter
 
+# Generate the winter-solstice configuration under extreme storm driving:
+uv run magnetosphere-stl --defaults-extreme
+
 # Repeat the default development run, replacing its generated files:
 uv run magnetosphere-stl --defaults --overwrite
 
@@ -309,6 +312,11 @@ Dst = -30 nT, IMF By = +10 nT, IMF Bz = -8 nT, and Kp = 4. These are illustrativ
 moderately disturbed inputs selected to make the seasonal displacement and
 dawn-dusk twist legible in the model; they are not a reconstruction of one observed
 solar-wind interval. Its output directory is `output/default-winter`.
+
+The `--defaults-extreme` preset keeps the same winter-solstice epoch and uses
+20 nPa dynamic pressure, Dst = -100 nT, IMF By = +15 nT, IMF Bz = -20 nT, and
+Kp = 7. It is an illustrative strongly driven case rather than a reconstruction
+of an observed interval. Its output directory is `output/default-extreme`.
 
 The Python entry point is `magnetosphere_stl.generate_all(config, output_dir)`.
 Every component in a run receives the same immutable `ProjectConfig`. Each run
@@ -372,6 +380,8 @@ face. Only the Y ≥ 0 half of the convection cutter is used. The polar cutter
 where Z lies above the same curved current-sheet height used for peeling, allowing
 the X–Z grooves to extend below GSM Z=0 when the sheet is seasonally displaced.
 Their standalone tube STLs are still exported in full for assembly.
+When polar field snippets are enabled, they replace the longer polar fan as the
+X–Z groove cutter so the two patterns are not superimposed.
 This alignment is defined only for the default 90° magnetopause opening centered at
 45°. Changing either peel value skips these grooves with a warning.
 
@@ -529,9 +539,38 @@ uv run magnetosphere-stl --defaults --output output/polar-fan \
   --only polar-field-lines
 ```
 
+## Polar field snippets
+
+Add `--polar-field-snippets` to replace the default fan with short field traces
+distributed across the exposed X–Z cut face. Seed points are selected reproducibly
+at `Y=0`, inside the magnetopause, outside Earth, and above the local current-sheet
+height. Each seed is traced both ways through the full three-dimensional
+Tsyganenko/IGRF field. A trace half stops when its centerline reaches `|Y|=0.5 R_E`,
+a physical model boundary, or `15 R_E` of path length. The retained short trace is
+then projected to `Y=0` and converted to a capped 2 mm tube. This deliberately makes
+a near-plane visualization of the local field rather than claiming that the final
+curve is an exact field line.
+
+Seeds default to a deterministic 3.5 R_E minimum spacing. After projection, candidates
+coming within 0.75 R_E of an accepted centerline are rejected so their groove tubes
+do not cross or overlap. Configure the result with
+`--polar-snippet-spacing-re`, `--polar-snippet-random-seed`,
+`--polar-snippet-max-y-re`, `--polar-snippet-max-half-length-re`,
+`--polar-snippet-min-length-re`, `--polar-snippet-trace-spacing-re`,
+`--polar-snippet-trace-step-re`,
+`--polar-snippet-tube-diameter-mm`, `--polar-snippet-tube-sides`, and
+`--polar-snippet-path-step-mm`. Under a defaults preset, requesting snippets disables
+the fan unless `--polar-field-lines` is also given explicitly. If both standalone
+outputs are enabled, only snippets are used for the magnetopause grooves.
+
+```bash
+uv run magnetosphere-stl --defaults-winter --polar-field-snippets \
+  --output output/winter-polar-snippets --only polar-field-snippets
+```
+
 `--only` can be repeated to select multiple groups from `earth`, `magnetopause`,
-`bow-shock`, `convection`, `current-sheet`, `polar-field-lines`, `random-field-lines`,
-`field-line-wedges`, and `l-shells`.
+`bow-shock`, `convection`, `current-sheet`, `polar-field-lines`,
+`polar-field-snippets`, `random-field-lines`, `field-line-wedges`, and `l-shells`.
 Selecting an optional tube or wedge component automatically enables it. A defaults
 preset does not add other component groups when `--only` is used.
 
